@@ -11,6 +11,7 @@ import EditControls from './EditControls';
 import CameraPerspectivePanel from './CameraPerspectivePanel';
 import LightingPanel from './LightingPanel';
 import SettingsPanel, { HideInterfaceButton } from './SettingsPanel';
+import SaveButton from './SaveButton';
 import { useSceneStore } from '../store/sceneStore';
 
 interface ProjectWrapperProps {
@@ -158,8 +159,9 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
           <HideInterfaceButton />
         </div>
 
-        {/* Save Button */}
+        {/* Save Controls */}
         <div className="flex items-center gap-4">
+          {/* Manual Save Button */}
           <button
             onClick={handleManualSave}
             disabled={saveStatus === 'saving'}
@@ -175,6 +177,9 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
           >
             {getSaveButtonContent()}
           </button>
+
+          {/* Cloud Save Button */}
+          <SaveButton user={user} />
 
           {lastSaved && (
             <div className="bg-[#1a1a1a]/90 backdrop-blur-sm rounded-xl shadow-2xl shadow-black/20 p-3 border border-white/5">
