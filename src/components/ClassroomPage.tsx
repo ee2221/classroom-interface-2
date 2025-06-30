@@ -33,8 +33,7 @@ import {
   doc, 
   updateDoc, 
   query, 
-  where, 
-  orderBy,
+  where,
   serverTimestamp,
   Timestamp 
 } from 'firebase/firestore';
@@ -121,10 +120,10 @@ const ClassroomPage: React.FC<ClassroomPageProps> = ({ user, onProjectSelect, on
     if (!user) return;
 
     try {
+      // Use only the where clause to avoid composite index requirement
       const q = query(
         collection(db, 'projects'),
-        where('userId', '==', user.uid),
-        orderBy('updatedAt', 'desc')
+        where('userId', '==', user.uid)
       );
       
       const querySnapshot = await getDocs(q);
@@ -133,7 +132,14 @@ const ClassroomPage: React.FC<ClassroomPageProps> = ({ user, onProjectSelect, on
         ...doc.data()
       } as Project));
 
-      setProjects(projectsData);
+      // Sort by updatedAt in JavaScript instead of Firestore
+      const sortedProjects = projectsData.sort((a, b) => {
+        const aTime = a.updatedAt?.toMillis() || 0;
+        const bTime = b.updatedAt?.toMillis() || 0;
+        return bTime - aTime; // Descending order (newest first)
+      });
+
+      setProjects(sortedProjects);
     } catch (error) {
       console.error('Error loading projects:', error);
     } finally {
