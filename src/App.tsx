@@ -1,25 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from './config/firebase';
-import Scene from './components/Scene';
-import Toolbar from './components/Toolbar';
-import ActionsToolbar from './components/ActionsToolbar';
-import LayersPanel from './components/LayersPanel';
-import ObjectProperties from './components/ObjectProperties';
-import EditControls from './components/EditControls';
-import CameraPerspectivePanel from './components/CameraPerspectivePanel';
-import LightingPanel from './components/LightingPanel';
-import SettingsPanel, { HideInterfaceButton } from './components/SettingsPanel';
-import SaveButton from './components/SaveButton';
+import ClassroomPage from './components/ClassroomPage';
+import ProjectWrapper from './components/ProjectWrapper';
 import AuthModal from './components/AuthModal';
-import UserProfile from './components/UserProfile';
 import { useSceneStore } from './store/sceneStore';
 
 function App() {
-  const { sceneSettings } = useSceneStore();
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [currentProject, setCurrentProject] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+
+  // Reset scene store when switching projects
+  const resetScene = useSceneStore(state => state.resetScene);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -29,6 +26,7 @@ function App() {
       // Show auth modal if no user is signed in
       if (!user) {
         setShowAuthModal(true);
+        setCurrentProject(null); // Clear current project when user signs out
       }
     });
 
@@ -41,13 +39,31 @@ function App() {
 
   const handleSignOut = () => {
     setUser(null);
+    setCurrentProject(null);
     setShowAuthModal(true);
+  };
+
+  const handleProjectSelect = (projectId: string, projectName: string) => {
+    // Reset the scene store for the new project
+    if (resetScene) {
+      resetScene();
+    }
+    
+    setCurrentProject({ id: projectId, name: projectName });
+  };
+
+  const handleBackToClassroom = () => {
+    setCurrentProject(null);
+    // Optionally reset scene when going back to classroom
+    if (resetScene) {
+      resetScene();
+    }
   };
 
   // Show loading screen while checking auth state
   if (loading) {
     return (
-      <div className="w-full h-screen bg-[#0f0f23] flex items-center justify-center">
+      <div className="w-full h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
         <div className="text-center">
           <div className="w-12 h-12 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-white/70">Loading...</p>
@@ -56,39 +72,42 @@ function App() {
     );
   }
 
+  // Show project view if a project is selected
+  if (currentProject && user) {
+    return (
+      <ProjectWrapper
+        projectId={currentProject.id}
+        projectName={currentProject.name}
+        user={user}
+        onBackToClassroom={handleBackToClassroom}
+      />
+    );
+  }
+
+  // Show classroom view if user is authenticated but no project selected
+  if (user) {
+    return (
+      <ClassroomPage
+        user={user}
+        onProjectSelect={handleProjectSelect}
+        onSignOut={handleSignOut}
+      />
+    );
+  }
+
+  // Show auth modal if no user
   return (
-    <div className="w-full h-screen relative">
-      <Scene />
-      
-      {/* Top Left Controls - Arranged horizontally */}
-      <div className="fixed top-4 left-4 flex items-center gap-4 z-50">
-        {/* Hide Interface Button */}
-        <HideInterfaceButton />
-        
-        {/* Save Button - When user is authenticated */}
-        {user && <SaveButton user={user} />}
-        
-        {/* User Profile - When user is authenticated */}
-        {user && <UserProfile user={user} onSignOut={handleSignOut} />}
+    <div className="w-full h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
+      <div className="text-center">
+        <div className="w-24 h-24 bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
+          <div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center">
+            <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded"></div>
+          </div>
+        </div>
+        <h1 className="text-3xl font-bold text-white mb-2">3D Modeling Classroom</h1>
+        <p className="text-white/60 mb-8">Create and manage your 3D projects</p>
       </div>
-      
-      {/* Conditionally render UI panels based on hideAllMenus setting */}
-      {!sceneSettings.hideAllMenus && (
-        <>
-          <ActionsToolbar />
-          <Toolbar />
-          <LayersPanel />
-          <ObjectProperties />
-          <EditControls />
-          <CameraPerspectivePanel />
-          <LightingPanel />
-        </>
-      )}
-      
-      {/* Settings panel is always visible */}
-      <SettingsPanel />
-      
-      {/* Authentication Modal */}
+
       <AuthModal 
         isOpen={showAuthModal}
         onClose={() => setShowAuthModal(false)}

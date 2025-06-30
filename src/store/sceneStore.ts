@@ -36,7 +36,7 @@ interface SceneSettings {
   gridSize: number;
   gridDivisions: number;
   hideAllMenus: boolean;
-  showLightHelpers: boolean; // New setting for light helper visibility
+  showLightHelpers: boolean;
 }
 
 interface HistoryState {
@@ -70,7 +70,6 @@ interface SceneState {
   cameraPerspective: CameraPerspective;
   cameraZoom: number;
   sceneSettings: SceneSettings;
-  // New persistent mode settings
   persistentTransformMode: 'translate' | 'rotate' | 'scale' | null;
   persistentEditMode: EditMode;
   selectedElements: {
@@ -95,18 +94,17 @@ interface SceneState {
   historyIndex: number;
   canUndo: boolean;
   canRedo: boolean;
-  // New placement state
   placementMode: boolean;
   pendingObject: {
     geometry: () => THREE.BufferGeometry | THREE.Group;
     name: string;
     color?: string;
   } | null;
-  // Save state
   lastSaved: Date | null;
   hasUnsavedChanges: boolean;
-  // Camera state for zoom operations
   cameraTarget: THREE.Vector3;
+  
+  // All the existing methods...
   addObject: (object: THREE.Object3D, name: string) => void;
   removeObject: (id: string) => void;
   setSelectedObject: (object: THREE.Object3D | null) => void;
@@ -130,7 +128,6 @@ interface SceneState {
   setIsDraggingEdge: (isDragging: boolean) => void;
   updateCylinderVertices: (vertexCount: number) => void;
   updateSphereVertices: (vertexCount: number) => void;
-  // Group management
   createGroup: (name: string, objectIds?: string[]) => void;
   removeGroup: (groupId: string) => void;
   addObjectToGroup: (objectId: string, groupId: string) => void;
@@ -140,33 +137,69 @@ interface SceneState {
   toggleGroupLock: (groupId: string) => void;
   updateGroupName: (groupId: string, name: string) => void;
   moveObjectsToGroup: (objectIds: string[], groupId: string | null) => void;
-  // New action functions
   undo: () => void;
   redo: () => void;
   duplicateObject: () => void;
   mirrorObject: () => void;
   zoomIn: () => void;
   zoomOut: () => void;
-  // Enhanced placement functions
   startObjectPlacement: (objectDef: { geometry: () => THREE.BufferGeometry | THREE.Group; name: string; color?: string }) => void;
   placeObjectAt: (position: THREE.Vector3, rotation?: THREE.Euler | null) => void;
   cancelObjectPlacement: () => void;
-  // Light management functions
   addLight: (type: 'directional' | 'point' | 'spot', position?: number[]) => void;
   removeLight: (lightId: string) => void;
   updateLight: (lightId: string, properties: Partial<Light>) => void;
   toggleLightVisibility: (lightId: string) => void;
   setSelectedLight: (light: Light | null) => void;
-  // Helper functions
   isObjectLocked: (objectId: string) => boolean;
   canSelectObject: (object: THREE.Object3D) => boolean;
   saveToHistory: () => void;
-  // Save functions
   markSaved: () => void;
   markUnsavedChanges: () => void;
-  // Camera functions
   setCameraTarget: (target: THREE.Vector3) => void;
+  
+  // New reset function for project switching
+  resetScene: () => void;
 }
+
+const initialState = {
+  objects: [],
+  groups: [],
+  lights: [],
+  selectedLight: null,
+  selectedObject: null,
+  transformMode: null,
+  editMode: null,
+  cameraPerspective: 'perspective' as CameraPerspective,
+  cameraZoom: 1,
+  sceneSettings: {
+    backgroundColor: '#0f0f23',
+    showGrid: true,
+    gridSize: 10,
+    gridDivisions: 10,
+    hideAllMenus: false,
+    showLightHelpers: true
+  },
+  persistentTransformMode: null,
+  persistentEditMode: null,
+  selectedElements: {
+    vertices: [],
+    edges: [],
+    faces: [],
+  },
+  draggedVertex: null,
+  draggedEdge: null,
+  isDraggingEdge: false,
+  history: [],
+  historyIndex: -1,
+  canUndo: false,
+  canRedo: false,
+  placementMode: false,
+  pendingObject: null,
+  lastSaved: null,
+  hasUnsavedChanges: false,
+  cameraTarget: new THREE.Vector3(0, 0, 0),
+};
 
 const cloneObject = (obj: THREE.Object3D): THREE.Object3D => {
   if (obj instanceof THREE.Mesh) {
@@ -213,46 +246,10 @@ const createLight = (type: 'directional' | 'point' | 'spot', position: number[],
 };
 
 export const useSceneStore = create<SceneState>((set, get) => ({
-  objects: [],
-  groups: [],
-  lights: [],
-  selectedLight: null,
-  selectedObject: null,
-  transformMode: null,
-  editMode: null,
-  cameraPerspective: 'perspective',
-  cameraZoom: 1,
-  sceneSettings: {
-    backgroundColor: '#0f0f23',
-    showGrid: true,
-    gridSize: 10,
-    gridDivisions: 10,
-    hideAllMenus: false,
-    showLightHelpers: true // Default to showing light helpers
-  },
-  // New persistent mode settings
-  persistentTransformMode: null,
-  persistentEditMode: null,
-  selectedElements: {
-    vertices: [],
-    edges: [],
-    faces: [],
-  },
-  draggedVertex: null,
-  draggedEdge: null,
-  isDraggingEdge: false,
-  history: [],
-  historyIndex: -1,
-  canUndo: false,
-  canRedo: false,
-  // New placement state
-  placementMode: false,
-  pendingObject: null,
-  // Save state
-  lastSaved: null,
-  hasUnsavedChanges: false,
-  // Camera state
-  cameraTarget: new THREE.Vector3(0, 0, 0),
+  ...initialState,
+
+  // Reset function to clear all scene data when switching projects
+  resetScene: () => set(initialState),
 
   updateSceneSettings: (settings) =>
     set((state) => {
@@ -272,14 +269,13 @@ export const useSceneStore = create<SceneState>((set, get) => ({
       groups: JSON.parse(JSON.stringify(state.groups)),
       lights: JSON.parse(JSON.stringify(state.lights.map(light => ({
         ...light,
-        object: undefined // Don't clone the THREE.js object
+        object: undefined
       }))))
     };
 
     const newHistory = state.history.slice(0, state.historyIndex + 1);
     newHistory.push(currentState);
 
-    // Limit history to 50 states
     if (newHistory.length > 50) {
       newHistory.shift();
     }
@@ -298,7 +294,6 @@ export const useSceneStore = create<SceneState>((set, get) => ({
     set((state) => {
       const newObjects = [...state.objects, { id: crypto.randomUUID(), object, name, visible: true, locked: false }];
       
-      // Save to history after adding
       setTimeout(() => get().saveToHistory(), 0);
       
       return { objects: newObjects };
@@ -306,17 +301,14 @@ export const useSceneStore = create<SceneState>((set, get) => ({
 
   removeObject: (id) =>
     set((state) => {
-      // Check if object is locked
       const objectToRemove = state.objects.find(obj => obj.id === id);
       if (objectToRemove?.locked) return state;
 
-      // Check if object is in a locked group
       if (objectToRemove?.groupId) {
         const group = state.groups.find(g => g.id === objectToRemove.groupId);
         if (group?.locked) return state;
       }
 
-      // Remove object from any group
       const updatedGroups = state.groups.map(group => ({
         ...group,
         objectIds: group.objectIds.filter(objId => objId !== id)
@@ -330,7 +322,6 @@ export const useSceneStore = create<SceneState>((set, get) => ({
           : state.selectedObject,
       };
 
-      // Save to history after removing
       setTimeout(() => get().saveToHistory(), 0);
 
       return newState;
@@ -338,25 +329,21 @@ export const useSceneStore = create<SceneState>((set, get) => ({
 
   setSelectedObject: (object) => 
     set((state) => {
-      // Check if object can be selected (not locked)
       if (object && !get().canSelectObject(object)) {
-        return state; // Don't change selection if object is locked
+        return state;
       }
 
       let newEditMode = state.editMode;
       let newTransformMode = state.transformMode;
 
       if (object) {
-        // Apply persistent transform mode if set
         if (state.persistentTransformMode) {
           newTransformMode = state.persistentTransformMode;
         }
 
-        // Apply persistent edit mode if set
         if (state.persistentEditMode) {
           newEditMode = state.persistentEditMode;
         } else {
-          // Auto-enable vertex mode for sphere, cylinder, and cone only if no persistent mode is set
           if (object instanceof THREE.Mesh) {
             const geometry = object.geometry;
             if (geometry instanceof THREE.SphereGeometry ||
@@ -367,7 +354,6 @@ export const useSceneStore = create<SceneState>((set, get) => ({
           }
         }
       } else {
-        // When deselecting, only clear modes if no persistent modes are set
         if (!state.persistentEditMode) {
           newEditMode = null;
         }
@@ -384,30 +370,25 @@ export const useSceneStore = create<SceneState>((set, get) => ({
     }),
 
   setTransformMode: (mode) => 
-    set((state) => {
-      // Update both current and persistent transform mode
-      return {
-        transformMode: mode,
-        persistentTransformMode: mode // Remember this choice for future selections
-      };
-    }),
+    set((state) => ({
+      transformMode: mode,
+      persistentTransformMode: mode
+    })),
   
   setEditMode: (mode) => 
     set((state) => {
-      // If trying to set edge mode on unsupported geometry, prevent it
       if (mode === 'edge' && state.selectedObject instanceof THREE.Mesh) {
         const geometry = state.selectedObject.geometry;
         if (geometry instanceof THREE.CylinderGeometry ||
             geometry instanceof THREE.ConeGeometry ||
             geometry instanceof THREE.SphereGeometry) {
-          return state; // Don't change the edit mode
+          return state;
         }
       }
 
-      // Update both current and persistent edit mode
       return { 
         editMode: mode,
-        persistentEditMode: mode // Remember this choice for future selections
+        persistentEditMode: mode
       };
     }),
 
@@ -421,10 +402,8 @@ export const useSceneStore = create<SceneState>((set, get) => ({
       const objectToToggle = state.objects.find(obj => obj.id === id);
       if (!objectToToggle) return state;
 
-      // Check if object is locked
       if (objectToToggle.locked) return state;
 
-      // Check if object is in a locked group
       if (objectToToggle.groupId) {
         const group = state.groups.find(g => g.id === objectToToggle.groupId);
         if (group?.locked) return state;
@@ -453,7 +432,6 @@ export const useSceneStore = create<SceneState>((set, get) => ({
       const objectToToggle = state.objects.find(obj => obj.id === id);
       if (!objectToToggle) return state;
 
-      // Check if object is in a locked group
       if (objectToToggle.groupId) {
         const group = state.groups.find(g => g.id === objectToToggle.groupId);
         if (group?.locked) return state;
@@ -465,7 +443,6 @@ export const useSceneStore = create<SceneState>((set, get) => ({
       
       const toggledObject = updatedObjects.find((obj) => obj.id === id);
       
-      // Clear selection if selected object becomes locked
       const newSelectedObject = (toggledObject && toggledObject.locked && toggledObject.object === state.selectedObject)
         ? null
         : state.selectedObject;
@@ -483,10 +460,8 @@ export const useSceneStore = create<SceneState>((set, get) => ({
       const objectToUpdate = state.objects.find(obj => obj.id === id);
       if (!objectToUpdate) return state;
 
-      // Check if object is locked
       if (objectToUpdate.locked) return state;
 
-      // Check if object is in a locked group
       if (objectToUpdate.groupId) {
         const group = state.groups.find(g => g.id === objectToUpdate.groupId);
         if (group?.locked) return state;
@@ -509,7 +484,6 @@ export const useSceneStore = create<SceneState>((set, get) => ({
   updateObjectColor: (color) => 
     set((state) => {
       if (state.selectedObject instanceof THREE.Mesh) {
-        // Check if selected object is locked
         const selectedObj = state.objects.find(obj => obj.object === state.selectedObject);
         if (get().isObjectLocked(selectedObj?.id || '')) return state;
 
@@ -525,7 +499,6 @@ export const useSceneStore = create<SceneState>((set, get) => ({
   updateObjectOpacity: (opacity) =>
     set((state) => {
       if (state.selectedObject instanceof THREE.Mesh) {
-        // Check if selected object is locked
         const selectedObj = state.objects.find(obj => obj.object === state.selectedObject);
         if (get().isObjectLocked(selectedObj?.id || '')) return state;
 
@@ -551,7 +524,6 @@ export const useSceneStore = create<SceneState>((set, get) => ({
     set((state) => {
       if (!(state.selectedObject instanceof THREE.Mesh)) return state;
 
-      // Check if selected object is locked
       const selectedObj = state.objects.find(obj => obj.object === state.selectedObject);
       if (get().isObjectLocked(selectedObj?.id || '')) return state;
 
@@ -592,14 +564,12 @@ export const useSceneStore = create<SceneState>((set, get) => ({
     set((state) => {
       if (!state.draggedVertex || !(state.selectedObject instanceof THREE.Mesh)) return state;
 
-      // Check if selected object is locked
       const selectedObj = state.objects.find(obj => obj.object === state.selectedObject);
       if (get().isObjectLocked(selectedObj?.id || '')) return state;
 
       const geometry = state.selectedObject.geometry;
       const positions = geometry.attributes.position;
       
-      // Update all overlapping vertices to the new position
       state.draggedVertex.indices.forEach(index => {
         positions.setXYZ(
           index,
@@ -629,7 +599,6 @@ export const useSceneStore = create<SceneState>((set, get) => ({
     set((state) => {
       if (!(state.selectedObject instanceof THREE.Mesh)) return state;
 
-      // Check if selected object is locked
       const selectedObj = state.objects.find(obj => obj.object === state.selectedObject);
       if (get().isObjectLocked(selectedObj?.id || '')) return state;
 
@@ -638,7 +607,6 @@ export const useSceneStore = create<SceneState>((set, get) => ({
       const connectedVertices = new Set<number>();
       const edges: number[][] = [];
 
-      // Find all overlapping vertices for each vertex in the edge
       const findOverlappingVertices = (targetIndex: number) => {
         const targetPos = new THREE.Vector3(
           positionAttribute.getX(targetIndex),
@@ -663,15 +631,12 @@ export const useSceneStore = create<SceneState>((set, get) => ({
         return overlapping;
       };
 
-      // Get all overlapping vertices for both edge vertices
       const vertex1Overlapping = findOverlappingVertices(vertexIndices[0]);
       const vertex2Overlapping = findOverlappingVertices(vertexIndices[1]);
 
-      // Add all overlapping vertices to connected set
       vertex1Overlapping.forEach(v => connectedVertices.add(v));
       vertex2Overlapping.forEach(v => connectedVertices.add(v));
 
-      // Create edge pairs
       vertex1Overlapping.forEach(v1 => {
         vertex2Overlapping.forEach(v2 => {
           edges.push([v1, v2]);
@@ -697,7 +662,6 @@ export const useSceneStore = create<SceneState>((set, get) => ({
     set((state) => {
       if (!state.draggedEdge || !(state.selectedObject instanceof THREE.Mesh)) return state;
 
-      // Check if selected object is locked
       const selectedObj = state.objects.find(obj => obj.object === state.selectedObject);
       if (get().isObjectLocked(selectedObj?.id || '')) return state;
 
@@ -705,7 +669,6 @@ export const useSceneStore = create<SceneState>((set, get) => ({
       const positions = geometry.attributes.position;
       const offset = position.clone().sub(state.draggedEdge.midpoint);
 
-      // Move all connected vertices by the offset
       state.draggedEdge.connectedVertices.forEach(vertexIndex => {
         const currentPos = new THREE.Vector3(
           positions.getX(vertexIndex),
@@ -741,7 +704,6 @@ export const useSceneStore = create<SceneState>((set, get) => ({
         return state;
       }
 
-      // Check if selected object is locked
       const selectedObj = state.objects.find(obj => obj.object === state.selectedObject);
       if (get().isObjectLocked(selectedObj?.id || '')) return state;
 
@@ -779,7 +741,6 @@ export const useSceneStore = create<SceneState>((set, get) => ({
         return state;
       }
 
-      // Check if selected object is locked
       const selectedObj = state.objects.find(obj => obj.object === state.selectedObject);
       if (get().isObjectLocked(selectedObj?.id || '')) return state;
 
@@ -809,7 +770,6 @@ export const useSceneStore = create<SceneState>((set, get) => ({
       };
     }),
 
-  // Group management functions
   createGroup: (name, objectIds = []) =>
     set((state) => {
       const newGroup: Group = {
@@ -821,7 +781,6 @@ export const useSceneStore = create<SceneState>((set, get) => ({
         objectIds: [...objectIds]
       };
 
-      // Update objects to be part of this group
       const updatedObjects = state.objects.map(obj => 
         objectIds.includes(obj.id) 
           ? { ...obj, groupId: newGroup.id }
@@ -841,7 +800,6 @@ export const useSceneStore = create<SceneState>((set, get) => ({
       const groupToRemove = state.groups.find(g => g.id === groupId);
       if (groupToRemove?.locked) return state;
 
-      // Remove group reference from objects
       const updatedObjects = state.objects.map(obj => 
         obj.groupId === groupId 
           ? { ...obj, groupId: undefined }
@@ -861,7 +819,6 @@ export const useSceneStore = create<SceneState>((set, get) => ({
       const objectToMove = state.objects.find(obj => obj.id === objectId);
       const targetGroup = state.groups.find(g => g.id === groupId);
       
-      // Check if object is locked or target group is locked
       if (objectToMove?.locked || targetGroup?.locked) return state;
 
       const updatedObjects = state.objects.map(obj =>
@@ -889,7 +846,6 @@ export const useSceneStore = create<SceneState>((set, get) => ({
 
       const group = state.groups.find(g => g.id === obj.groupId);
       
-      // Check if object is locked or group is locked
       if (obj.locked || group?.locked) return state;
 
       const updatedObjects = state.objects.map(o =>
@@ -924,19 +880,16 @@ export const useSceneStore = create<SceneState>((set, get) => ({
 
       const newVisibility = !group.visible;
 
-      // Update group visibility
       const updatedGroups = state.groups.map(g =>
         g.id === groupId ? { ...g, visible: newVisibility } : g
       );
 
-      // Update all objects in the group
       const updatedObjects = state.objects.map(obj =>
         group.objectIds.includes(obj.id) 
           ? { ...obj, visible: newVisibility }
           : obj
       );
 
-      // Clear selection if selected object becomes invisible
       const selectedObj = state.objects.find(obj => obj.object === state.selectedObject);
       const newSelectedObject = (selectedObj && group.objectIds.includes(selectedObj.id) && !newVisibility)
         ? null
@@ -958,12 +911,10 @@ export const useSceneStore = create<SceneState>((set, get) => ({
 
       const newLockState = !group.locked;
 
-      // Update group lock state
       const updatedGroups = state.groups.map(g =>
         g.id === groupId ? { ...g, locked: newLockState } : g
       );
 
-      // Clear selection if selected object is in a group that becomes locked
       const selectedObj = state.objects.find(obj => obj.object === state.selectedObject);
       const newSelectedObject = (selectedObj && group.objectIds.includes(selectedObj.id) && newLockState)
         ? null
@@ -993,7 +944,6 @@ export const useSceneStore = create<SceneState>((set, get) => ({
 
   moveObjectsToGroup: (objectIds, groupId) =>
     set((state) => {
-      // Check if any objects are locked
       const lockedObjects = objectIds.filter(id => {
         const obj = state.objects.find(o => o.id === id);
         return obj?.locked || (obj?.groupId && state.groups.find(g => g.id === obj.groupId)?.locked);
@@ -1001,19 +951,16 @@ export const useSceneStore = create<SceneState>((set, get) => ({
 
       if (lockedObjects.length > 0) return state;
 
-      // Check if target group is locked
       if (groupId) {
         const targetGroup = state.groups.find(g => g.id === groupId);
         if (targetGroup?.locked) return state;
       }
 
-      // Remove objects from their current groups
       const updatedGroups = state.groups.map(group => ({
         ...group,
         objectIds: group.objectIds.filter(id => !objectIds.includes(id))
       }));
 
-      // Add objects to the new group if specified
       const finalGroups = groupId 
         ? updatedGroups.map(group =>
             group.id === groupId
@@ -1022,7 +969,6 @@ export const useSceneStore = create<SceneState>((set, get) => ({
           )
         : updatedGroups;
 
-      // Update objects
       const updatedObjects = state.objects.map(obj =>
         objectIds.includes(obj.id) 
           ? { ...obj, groupId }
@@ -1037,7 +983,6 @@ export const useSceneStore = create<SceneState>((set, get) => ({
       };
     }),
 
-  // New action functions
   undo: () =>
     set((state) => {
       if (state.historyIndex <= 0) return state;
@@ -1055,7 +1000,7 @@ export const useSceneStore = create<SceneState>((set, get) => ({
         historyIndex: state.historyIndex - 1,
         canUndo: state.historyIndex - 1 > 0,
         canRedo: true,
-        selectedObject: null, // Clear selection on undo
+        selectedObject: null,
         selectedLight: null
       };
     }),
@@ -1077,7 +1022,7 @@ export const useSceneStore = create<SceneState>((set, get) => ({
         historyIndex: state.historyIndex + 1,
         canUndo: true,
         canRedo: state.historyIndex + 1 < state.history.length - 1,
-        selectedObject: null, // Clear selection on redo
+        selectedObject: null,
         selectedLight: null
       };
     }),
@@ -1086,12 +1031,11 @@ export const useSceneStore = create<SceneState>((set, get) => ({
     set((state) => {
       if (!state.selectedObject) return state;
 
-      // Check if selected object is locked
       const selectedObj = state.objects.find(obj => obj.object === state.selectedObject);
       if (!selectedObj || get().isObjectLocked(selectedObj.id)) return state;
 
       const clonedObject = cloneObject(state.selectedObject);
-      clonedObject.position.x += 1; // Offset the duplicate
+      clonedObject.position.x += 1;
 
       const newObject = {
         id: crypto.randomUUID(),
@@ -1102,7 +1046,6 @@ export const useSceneStore = create<SceneState>((set, get) => ({
         groupId: selectedObj.groupId
       };
 
-      // Update group if object belongs to one
       let updatedGroups = state.groups;
       if (selectedObj.groupId) {
         updatedGroups = state.groups.map(group =>
@@ -1125,11 +1068,9 @@ export const useSceneStore = create<SceneState>((set, get) => ({
     set((state) => {
       if (!state.selectedObject) return state;
 
-      // Check if selected object is locked
       const selectedObj = state.objects.find(obj => obj.object === state.selectedObject);
       if (!selectedObj || get().isObjectLocked(selectedObj.id)) return state;
 
-      // Mirror along X-axis
       state.selectedObject.scale.x *= -1;
 
       get().saveToHistory();
@@ -1153,7 +1094,6 @@ export const useSceneStore = create<SceneState>((set, get) => ({
       };
     }),
 
-  // Enhanced placement functions
   startObjectPlacement: (objectDef) =>
     set({
       placementMode: true,
@@ -1170,25 +1110,20 @@ export const useSceneStore = create<SceneState>((set, get) => ({
       const geometryOrGroup = state.pendingObject.geometry();
       let object: THREE.Object3D;
 
-      // Check if it's a THREE.Group or THREE.BufferGeometry
       if (geometryOrGroup instanceof THREE.Group) {
-        // It's already a complete group, use it directly
         object = geometryOrGroup;
       } else {
-        // It's a BufferGeometry, create a mesh with material
         const material = new THREE.MeshStandardMaterial({ 
           color: state.pendingObject.color || '#44aa88' 
         });
         object = new THREE.Mesh(geometryOrGroup, material);
       }
 
-      // Set position and rotation
       object.position.copy(position);
       if (rotation) {
         object.rotation.copy(rotation);
       }
 
-      // Add to scene
       const newObjects = [...state.objects, { 
         id: crypto.randomUUID(), 
         object, 
@@ -1197,14 +1132,11 @@ export const useSceneStore = create<SceneState>((set, get) => ({
         locked: false 
       }];
 
-      // Save to history after adding
       setTimeout(() => get().saveToHistory(), 0);
 
-      // Apply persistent modes to the newly placed object
       let newTransformMode = state.persistentTransformMode;
       let newEditMode = state.persistentEditMode;
 
-      // Auto-enable vertex mode for certain geometries if no persistent edit mode is set
       if (!state.persistentEditMode && object instanceof THREE.Mesh) {
         const geometry = object.geometry;
         if (geometry instanceof THREE.SphereGeometry ||
@@ -1230,7 +1162,6 @@ export const useSceneStore = create<SceneState>((set, get) => ({
       pendingObject: null
     }),
 
-  // Light management functions
   addLight: (type, position = [2, 2, 2]) =>
     set((state) => {
       const lightCount = state.lights.filter(l => l.type === type).length;
@@ -1277,18 +1208,15 @@ export const useSceneStore = create<SceneState>((set, get) => ({
         if (light.id === lightId) {
           const updatedLight = { ...light, ...properties };
           
-          // Update the THREE.js light object
           if (updatedLight.object) {
             const threeLight = updatedLight.object;
             
-            // Update common properties
             threeLight.intensity = updatedLight.intensity;
             threeLight.color.setStyle(updatedLight.color);
             threeLight.visible = updatedLight.visible;
             threeLight.castShadow = updatedLight.castShadow;
             threeLight.position.set(...updatedLight.position);
             
-            // Update type-specific properties
             if (updatedLight.type === 'directional' && threeLight instanceof THREE.DirectionalLight) {
               threeLight.target.position.set(...updatedLight.target);
             } else if (updatedLight.type === 'point' && threeLight instanceof THREE.PointLight) {
@@ -1324,7 +1252,6 @@ export const useSceneStore = create<SceneState>((set, get) => ({
         light.id === lightId ? { ...light, visible: !light.visible } : light
       );
 
-      // Update the THREE.js object
       const light = updatedLights.find(l => l.id === lightId);
       if (light?.object) {
         light.object.visible = light.visible;
@@ -1337,16 +1264,13 @@ export const useSceneStore = create<SceneState>((set, get) => ({
 
   setSelectedLight: (light) => set({ selectedLight: light }),
 
-  // Helper functions
   isObjectLocked: (objectId) => {
     const state = get();
     const obj = state.objects.find(o => o.id === objectId);
     if (!obj) return false;
 
-    // Check if object itself is locked
     if (obj.locked) return true;
 
-    // Check if object is in a locked group
     if (obj.groupId) {
       const group = state.groups.find(g => g.id === obj.groupId);
       return group?.locked || false;
@@ -1361,7 +1285,6 @@ export const useSceneStore = create<SceneState>((set, get) => ({
     return obj ? !get().isObjectLocked(obj.id) : true;
   },
 
-  // Save functions
   markSaved: () => 
     set({
       lastSaved: new Date(),
@@ -1373,7 +1296,6 @@ export const useSceneStore = create<SceneState>((set, get) => ({
       hasUnsavedChanges: true
     }),
 
-  // Camera functions
   setCameraTarget: (target) => 
     set({
       cameraTarget: target.clone()
