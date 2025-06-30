@@ -19,7 +19,8 @@ import * as THREE from 'three';
 // Types for Firestore data
 export interface FirestoreObject {
   id?: string;
-  userId?: string; // Add userId field
+  userId?: string;
+  projectId?: string; // Add projectId field
   name: string;
   type: string;
   position: { x: number; y: number; z: number };
@@ -38,7 +39,8 @@ export interface FirestoreObject {
 
 export interface FirestoreGroup {
   id?: string;
-  userId?: string; // Add userId field
+  userId?: string;
+  projectId?: string; // Add projectId field
   name: string;
   expanded: boolean;
   visible: boolean;
@@ -50,7 +52,8 @@ export interface FirestoreGroup {
 
 export interface FirestoreLight {
   id?: string;
-  userId?: string; // Add userId field
+  userId?: string;
+  projectId?: string; // Add projectId field
   name: string;
   type: 'directional' | 'point' | 'spot';
   position: number[];
@@ -69,7 +72,8 @@ export interface FirestoreLight {
 
 export interface FirestoreScene {
   id?: string;
-  userId?: string; // Add userId field
+  userId?: string;
+  projectId?: string; // Add projectId field
   name: string;
   description?: string;
   backgroundColor: string;
@@ -82,16 +86,11 @@ export interface FirestoreScene {
   updatedAt?: Timestamp;
 }
 
-// Collection names
-const COLLECTIONS = {
-  OBJECTS: 'objects',
-  GROUPS: 'groups',
-  LIGHTS: 'lights',
-  SCENES: 'scenes'
-} as const;
+// Collection names - now project-specific
+const getCollectionName = (projectId: string, type: string) => `project_${projectId}_${type}`;
 
 // Helper function to convert THREE.js object to Firestore format
-export const objectToFirestore = (object: THREE.Object3D, name: string, id?: string, userId?: string): FirestoreObject => {
+export const objectToFirestore = (object: THREE.Object3D, name: string, id?: string, userId?: string, projectId?: string): FirestoreObject => {
   const firestoreObj: FirestoreObject = {
     name,
     type: object.type,
@@ -117,9 +116,12 @@ export const objectToFirestore = (object: THREE.Object3D, name: string, id?: str
     updatedAt: serverTimestamp()
   };
 
-  // Add userId if provided
+  // Add userId and projectId if provided
   if (userId) {
     firestoreObj.userId = userId;
+  }
+  if (projectId) {
+    firestoreObj.projectId = projectId;
   }
 
   if (id) {
@@ -238,11 +240,12 @@ export const firestoreToObject = (data: FirestoreObject): THREE.Object3D | null 
   return object;
 };
 
-// Object CRUD operations with user scoping
-export const saveObject = async (objectData: FirestoreObject, userId: string): Promise<string> => {
+// Object CRUD operations with project scoping
+export const saveObject = async (objectData: FirestoreObject, userId: string, projectId: string): Promise<string> => {
   try {
-    const dataWithUser = { ...objectData, userId };
-    const docRef = await addDoc(collection(db, COLLECTIONS.OBJECTS), dataWithUser);
+    const dataWithIds = { ...objectData, userId, projectId };
+    const collectionName = getCollectionName(projectId, 'objects');
+    const docRef = await addDoc(collection(db, collectionName), dataWithIds);
     return docRef.id;
   } catch (error) {
     console.error('Error saving object:', error);
@@ -250,12 +253,14 @@ export const saveObject = async (objectData: FirestoreObject, userId: string): P
   }
 };
 
-export const updateObject = async (id: string, objectData: Partial<FirestoreObject>, userId: string): Promise<void> => {
+export const updateObject = async (id: string, objectData: Partial<FirestoreObject>, userId: string, projectId: string): Promise<void> => {
   try {
-    const objectRef = doc(db, COLLECTIONS.OBJECTS, id);
+    const collectionName = getCollectionName(projectId, 'objects');
+    const objectRef = doc(db, collectionName, id);
     await updateDoc(objectRef, {
       ...objectData,
       userId,
+      projectId,
       updatedAt: serverTimestamp()
     });
   } catch (error) {
@@ -264,20 +269,23 @@ export const updateObject = async (id: string, objectData: Partial<FirestoreObje
   }
 };
 
-export const deleteObject = async (id: string): Promise<void> => {
+export const deleteObject = async (id: string, projectId: string): Promise<void> => {
   try {
-    await deleteDoc(doc(db, COLLECTIONS.OBJECTS, id));
+    const collectionName = getCollectionName(projectId, 'objects');
+    await deleteDoc(doc(db, collectionName, id));
   } catch (error) {
     console.error('Error deleting object:', error);
     throw error;
   }
 };
 
-export const getObjects = async (userId: string): Promise<FirestoreObject[]> => {
+export const getObjects = async (userId: string, projectId: string): Promise<FirestoreObject[]> => {
   try {
+    const collectionName = getCollectionName(projectId, 'objects');
     const q = query(
-      collection(db, COLLECTIONS.OBJECTS), 
+      collection(db, collectionName), 
       where('userId', '==', userId),
+      where('projectId', '==', projectId),
       orderBy('createdAt', 'desc')
     );
     const querySnapshot = await getDocs(q);
@@ -291,9 +299,10 @@ export const getObjects = async (userId: string): Promise<FirestoreObject[]> => 
   }
 };
 
-export const getObject = async (id: string): Promise<FirestoreObject | null> => {
+export const getObject = async (id: string, projectId: string): Promise<FirestoreObject | null> => {
   try {
-    const docRef = doc(db, COLLECTIONS.OBJECTS, id);
+    const collectionName = getCollectionName(projectId, 'objects');
+    const docRef = doc(db, collectionName, id);
     const docSnap = await getDoc(docRef);
     
     if (docSnap.exists()) {
@@ -310,11 +319,12 @@ export const getObject = async (id: string): Promise<FirestoreObject | null> => 
   }
 };
 
-// Group CRUD operations with user scoping
-export const saveGroup = async (groupData: FirestoreGroup, userId: string): Promise<string> => {
+// Group CRUD operations with project scoping
+export const saveGroup = async (groupData: FirestoreGroup, userId: string, projectId: string): Promise<string> => {
   try {
-    const dataWithUser = { ...groupData, userId };
-    const docRef = await addDoc(collection(db, COLLECTIONS.GROUPS), dataWithUser);
+    const dataWithIds = { ...groupData, userId, projectId };
+    const collectionName = getCollectionName(projectId, 'groups');
+    const docRef = await addDoc(collection(db, collectionName), dataWithIds);
     return docRef.id;
   } catch (error) {
     console.error('Error saving group:', error);
@@ -322,12 +332,14 @@ export const saveGroup = async (groupData: FirestoreGroup, userId: string): Prom
   }
 };
 
-export const updateGroup = async (id: string, groupData: Partial<FirestoreGroup>, userId: string): Promise<void> => {
+export const updateGroup = async (id: string, groupData: Partial<FirestoreGroup>, userId: string, projectId: string): Promise<void> => {
   try {
-    const groupRef = doc(db, COLLECTIONS.GROUPS, id);
+    const collectionName = getCollectionName(projectId, 'groups');
+    const groupRef = doc(db, collectionName, id);
     await updateDoc(groupRef, {
       ...groupData,
       userId,
+      projectId,
       updatedAt: serverTimestamp()
     });
   } catch (error) {
@@ -336,20 +348,23 @@ export const updateGroup = async (id: string, groupData: Partial<FirestoreGroup>
   }
 };
 
-export const deleteGroup = async (id: string): Promise<void> => {
+export const deleteGroup = async (id: string, projectId: string): Promise<void> => {
   try {
-    await deleteDoc(doc(db, COLLECTIONS.GROUPS, id));
+    const collectionName = getCollectionName(projectId, 'groups');
+    await deleteDoc(doc(db, collectionName, id));
   } catch (error) {
     console.error('Error deleting group:', error);
     throw error;
   }
 };
 
-export const getGroups = async (userId: string): Promise<FirestoreGroup[]> => {
+export const getGroups = async (userId: string, projectId: string): Promise<FirestoreGroup[]> => {
   try {
+    const collectionName = getCollectionName(projectId, 'groups');
     const q = query(
-      collection(db, COLLECTIONS.GROUPS), 
+      collection(db, collectionName), 
       where('userId', '==', userId),
+      where('projectId', '==', projectId),
       orderBy('createdAt', 'desc')
     );
     const querySnapshot = await getDocs(q);
@@ -363,11 +378,12 @@ export const getGroups = async (userId: string): Promise<FirestoreGroup[]> => {
   }
 };
 
-// Light CRUD operations with user scoping
-export const saveLight = async (lightData: FirestoreLight, userId: string): Promise<string> => {
+// Light CRUD operations with project scoping
+export const saveLight = async (lightData: FirestoreLight, userId: string, projectId: string): Promise<string> => {
   try {
-    const dataWithUser = { ...lightData, userId };
-    const docRef = await addDoc(collection(db, COLLECTIONS.LIGHTS), dataWithUser);
+    const dataWithIds = { ...lightData, userId, projectId };
+    const collectionName = getCollectionName(projectId, 'lights');
+    const docRef = await addDoc(collection(db, collectionName), dataWithIds);
     return docRef.id;
   } catch (error) {
     console.error('Error saving light:', error);
@@ -375,12 +391,14 @@ export const saveLight = async (lightData: FirestoreLight, userId: string): Prom
   }
 };
 
-export const updateLight = async (id: string, lightData: Partial<FirestoreLight>, userId: string): Promise<void> => {
+export const updateLight = async (id: string, lightData: Partial<FirestoreLight>, userId: string, projectId: string): Promise<void> => {
   try {
-    const lightRef = doc(db, COLLECTIONS.LIGHTS, id);
+    const collectionName = getCollectionName(projectId, 'lights');
+    const lightRef = doc(db, collectionName, id);
     await updateDoc(lightRef, {
       ...lightData,
       userId,
+      projectId,
       updatedAt: serverTimestamp()
     });
   } catch (error) {
@@ -389,20 +407,23 @@ export const updateLight = async (id: string, lightData: Partial<FirestoreLight>
   }
 };
 
-export const deleteLight = async (id: string): Promise<void> => {
+export const deleteLight = async (id: string, projectId: string): Promise<void> => {
   try {
-    await deleteDoc(doc(db, COLLECTIONS.LIGHTS, id));
+    const collectionName = getCollectionName(projectId, 'lights');
+    await deleteDoc(doc(db, collectionName, id));
   } catch (error) {
     console.error('Error deleting light:', error);
     throw error;
   }
 };
 
-export const getLights = async (userId: string): Promise<FirestoreLight[]> => {
+export const getLights = async (userId: string, projectId: string): Promise<FirestoreLight[]> => {
   try {
+    const collectionName = getCollectionName(projectId, 'lights');
     const q = query(
-      collection(db, COLLECTIONS.LIGHTS), 
+      collection(db, collectionName), 
       where('userId', '==', userId),
+      where('projectId', '==', projectId),
       orderBy('createdAt', 'desc')
     );
     const querySnapshot = await getDocs(q);
@@ -416,11 +437,12 @@ export const getLights = async (userId: string): Promise<FirestoreLight[]> => {
   }
 };
 
-// Scene CRUD operations with user scoping
-export const saveScene = async (sceneData: FirestoreScene, userId: string): Promise<string> => {
+// Scene CRUD operations with project scoping
+export const saveScene = async (sceneData: FirestoreScene, userId: string, projectId: string): Promise<string> => {
   try {
-    const dataWithUser = { ...sceneData, userId };
-    const docRef = await addDoc(collection(db, COLLECTIONS.SCENES), dataWithUser);
+    const dataWithIds = { ...sceneData, userId, projectId };
+    const collectionName = getCollectionName(projectId, 'scenes');
+    const docRef = await addDoc(collection(db, collectionName), dataWithIds);
     return docRef.id;
   } catch (error) {
     console.error('Error saving scene:', error);
@@ -428,12 +450,14 @@ export const saveScene = async (sceneData: FirestoreScene, userId: string): Prom
   }
 };
 
-export const updateScene = async (id: string, sceneData: Partial<FirestoreScene>, userId: string): Promise<void> => {
+export const updateScene = async (id: string, sceneData: Partial<FirestoreScene>, userId: string, projectId: string): Promise<void> => {
   try {
-    const sceneRef = doc(db, COLLECTIONS.SCENES, id);
+    const collectionName = getCollectionName(projectId, 'scenes');
+    const sceneRef = doc(db, collectionName, id);
     await updateDoc(sceneRef, {
       ...sceneData,
       userId,
+      projectId,
       updatedAt: serverTimestamp()
     });
   } catch (error) {
@@ -442,11 +466,13 @@ export const updateScene = async (id: string, sceneData: Partial<FirestoreScene>
   }
 };
 
-export const getScenes = async (userId: string): Promise<FirestoreScene[]> => {
+export const getScenes = async (userId: string, projectId: string): Promise<FirestoreScene[]> => {
   try {
+    const collectionName = getCollectionName(projectId, 'scenes');
     const q = query(
-      collection(db, COLLECTIONS.SCENES), 
+      collection(db, collectionName), 
       where('userId', '==', userId),
+      where('projectId', '==', projectId),
       orderBy('createdAt', 'desc')
     );
     const querySnapshot = await getDocs(q);
@@ -460,11 +486,13 @@ export const getScenes = async (userId: string): Promise<FirestoreScene[]> => {
   }
 };
 
-// Real-time listeners with user scoping
-export const subscribeToObjects = (userId: string, callback: (objects: FirestoreObject[]) => void) => {
+// Real-time listeners with project scoping
+export const subscribeToObjects = (userId: string, projectId: string, callback: (objects: FirestoreObject[]) => void) => {
+  const collectionName = getCollectionName(projectId, 'objects');
   const q = query(
-    collection(db, COLLECTIONS.OBJECTS), 
+    collection(db, collectionName), 
     where('userId', '==', userId),
+    where('projectId', '==', projectId),
     orderBy('createdAt', 'desc')
   );
   return onSnapshot(q, (querySnapshot) => {
@@ -476,10 +504,12 @@ export const subscribeToObjects = (userId: string, callback: (objects: Firestore
   });
 };
 
-export const subscribeToGroups = (userId: string, callback: (groups: FirestoreGroup[]) => void) => {
+export const subscribeToGroups = (userId: string, projectId: string, callback: (groups: FirestoreGroup[]) => void) => {
+  const collectionName = getCollectionName(projectId, 'groups');
   const q = query(
-    collection(db, COLLECTIONS.GROUPS), 
+    collection(db, collectionName), 
     where('userId', '==', userId),
+    where('projectId', '==', projectId),
     orderBy('createdAt', 'desc')
   );
   return onSnapshot(q, (querySnapshot) => {
@@ -491,10 +521,12 @@ export const subscribeToGroups = (userId: string, callback: (groups: FirestoreGr
   });
 };
 
-export const subscribeToLights = (userId: string, callback: (lights: FirestoreLight[]) => void) => {
+export const subscribeToLights = (userId: string, projectId: string, callback: (lights: FirestoreLight[]) => void) => {
+  const collectionName = getCollectionName(projectId, 'lights');
   const q = query(
-    collection(db, COLLECTIONS.LIGHTS), 
+    collection(db, collectionName), 
     where('userId', '==', userId),
+    where('projectId', '==', projectId),
     orderBy('createdAt', 'desc')
   );
   return onSnapshot(q, (querySnapshot) => {
@@ -507,11 +539,11 @@ export const subscribeToLights = (userId: string, callback: (lights: FirestoreLi
 };
 
 // Batch operations for better performance
-export const saveObjectsBatch = async (objects: FirestoreObject[], userId: string): Promise<void> => {
+export const saveObjectsBatch = async (objects: FirestoreObject[], userId: string, projectId: string): Promise<void> => {
   try {
     const batch = [];
     for (const obj of objects) {
-      batch.push(saveObject(obj, userId));
+      batch.push(saveObject(obj, userId, projectId));
     }
     await Promise.all(batch);
   } catch (error) {
@@ -520,15 +552,38 @@ export const saveObjectsBatch = async (objects: FirestoreObject[], userId: strin
   }
 };
 
-export const deleteObjectsBatch = async (ids: string[]): Promise<void> => {
+export const deleteObjectsBatch = async (ids: string[], projectId: string): Promise<void> => {
   try {
     const batch = [];
     for (const id of ids) {
-      batch.push(deleteObject(id));
+      batch.push(deleteObject(id, projectId));
     }
     await Promise.all(batch);
   } catch (error) {
     console.error('Error deleting objects batch:', error);
+    throw error;
+  }
+};
+
+// Project cleanup function - deletes all project data
+export const deleteProjectData = async (projectId: string): Promise<void> => {
+  try {
+    const collections = ['objects', 'groups', 'lights', 'scenes'];
+    const deletePromises = [];
+
+    for (const collectionType of collections) {
+      const collectionName = getCollectionName(projectId, collectionType);
+      const q = query(collection(db, collectionName));
+      const querySnapshot = await getDocs(q);
+      
+      querySnapshot.docs.forEach(doc => {
+        deletePromises.push(deleteDoc(doc.ref));
+      });
+    }
+
+    await Promise.all(deletePromises);
+  } catch (error) {
+    console.error('Error deleting project data:', error);
     throw error;
   }
 };

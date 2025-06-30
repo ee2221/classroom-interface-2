@@ -150,6 +150,8 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
                   <span>{groups.length} groups</span>
                   <span>•</span>
                   <span>{lights.length} lights</span>
+                  <span>•</span>
+                  <span className="text-blue-400">Project DB: {projectId.slice(-6)}</span>
                 </div>
               </div>
             </div>
@@ -179,7 +181,7 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
           </button>
 
           {/* Cloud Save Button */}
-          <SaveButton user={user} />
+          <SaveButton user={user} projectId={projectId} />
 
           {lastSaved && (
             <div className="bg-[#1a1a1a]/90 backdrop-blur-sm rounded-xl shadow-2xl shadow-black/20 p-3 border border-white/5">
