@@ -13,6 +13,7 @@ import LightingPanel from './LightingPanel';
 import SettingsPanel, { HideInterfaceButton } from './SettingsPanel';
 import SaveButton from './SaveButton';
 import { useSceneStore } from '../store/sceneStore';
+import { useFirestoreScene } from '../hooks/useFirestore';
 
 interface ProjectWrapperProps {
   projectId: string;
@@ -27,9 +28,45 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
   user, 
   onBackToClassroom 
 }) => {
-  const { sceneSettings, objects, groups, lights } = useSceneStore();
+  const { sceneSettings, objects, groups, lights, resetScene } = useSceneStore();
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+
+  // Initialize Firestore integration for this project
+  const {
+    objects: firestoreObjects,
+    groups: firestoreGroups,
+    lights: firestoreLights,
+    loading: firestoreLoading,
+    error: firestoreError,
+    addObject: addFirestoreObject,
+    updateObject: updateFirestoreObject,
+    removeObject: removeFirestoreObject,
+    addGroup: addFirestoreGroup,
+    updateGroup: updateFirestoreGroup,
+    removeGroup: removeFirestoreGroup,
+    addLight: addFirestoreLight,
+    updateLight: updateFirestoreLight,
+    removeLight: removeFirestoreLight
+  } = useFirestoreScene(user?.uid, projectId);
+
+  // Load project data when component mounts
+  useEffect(() => {
+    if (firestoreObjects.length > 0 || firestoreGroups.length > 0 || firestoreLights.length > 0) {
+      // Load data into scene store
+      // This would require additional methods in the scene store to load from Firestore
+      console.log('Loading project data:', {
+        objects: firestoreObjects.length,
+        groups: firestoreGroups.length,
+        lights: firestoreLights.length
+      });
+    }
+  }, [firestoreObjects, firestoreGroups, firestoreLights]);
+
+  // Reset scene when project changes
+  useEffect(() => {
+    resetScene();
+  }, [projectId, resetScene]);
 
   // Auto-save functionality
   useEffect(() => {
@@ -118,11 +155,41 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
         return (
           <>
             <Save className="w-4 h-4" />
-            <span>Save</span>
+            <span>Save Project</span>
           </>
         );
     }
   };
+
+  if (firestoreLoading) {
+    return (
+      <div className="w-full h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-white/70 text-lg">Loading project...</p>
+          <p className="text-white/50 text-sm mt-2">Project ID: {projectId.slice(-8)}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (firestoreError) {
+    return (
+      <div className="w-full h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <AlertCircle className="w-16 h-16 text-red-400 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-white mb-2">Error Loading Project</h2>
+          <p className="text-red-400 mb-4">{firestoreError}</p>
+          <button
+            onClick={onBackToClassroom}
+            className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-xl font-medium transition-colors"
+          >
+            Back to Classroom
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full h-screen relative">
@@ -151,7 +218,7 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
                   <span>•</span>
                   <span>{lights.length} lights</span>
                   <span>•</span>
-                  <span className="text-blue-400">Project DB: {projectId.slice(-6)}</span>
+                  <span className="text-blue-400 font-mono">DB: {projectId.slice(-6)}</span>
                 </div>
               </div>
             </div>
@@ -163,7 +230,7 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
 
         {/* Save Controls */}
         <div className="flex items-center gap-4">
-          {/* Manual Save Button */}
+          {/* Project Metadata Save Button */}
           <button
             onClick={handleManualSave}
             disabled={saveStatus === 'saving'}
@@ -176,11 +243,12 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
                     ? 'bg-red-500/20 border-red-500/30 text-red-400 hover:bg-red-500/30'
                     : 'bg-[#1a1a1a] border-white/5 text-white/90 hover:bg-[#2a2a2a] hover:scale-105'
             }`}
+            title="Save project metadata"
           >
             {getSaveButtonContent()}
           </button>
 
-          {/* Cloud Save Button */}
+          {/* Cloud Save Button for 3D Scene Data */}
           <SaveButton user={user} projectId={projectId} />
 
           {lastSaved && (
