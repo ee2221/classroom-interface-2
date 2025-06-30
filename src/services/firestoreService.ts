@@ -282,17 +282,24 @@ export const deleteObject = async (id: string, projectId: string): Promise<void>
 export const getObjects = async (userId: string, projectId: string): Promise<FirestoreObject[]> => {
   try {
     const collectionName = getCollectionName(projectId, 'objects');
+    // Simplified query - filter by userId only, then filter projectId in memory
     const q = query(
       collection(db, collectionName), 
-      where('userId', '==', userId),
-      where('projectId', '==', projectId),
-      orderBy('createdAt', 'desc')
+      where('userId', '==', userId)
     );
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({
+    const allObjects = querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     } as FirestoreObject));
+    
+    // Filter by projectId in memory and sort by createdAt
+    return allObjects
+      .filter(obj => obj.projectId === projectId)
+      .sort((a, b) => {
+        if (!a.createdAt || !b.createdAt) return 0;
+        return b.createdAt.toMillis() - a.createdAt.toMillis();
+      });
   } catch (error) {
     console.error('Error getting objects:', error);
     throw error;
@@ -361,17 +368,24 @@ export const deleteGroup = async (id: string, projectId: string): Promise<void> 
 export const getGroups = async (userId: string, projectId: string): Promise<FirestoreGroup[]> => {
   try {
     const collectionName = getCollectionName(projectId, 'groups');
+    // Simplified query - filter by userId only, then filter projectId in memory
     const q = query(
       collection(db, collectionName), 
-      where('userId', '==', userId),
-      where('projectId', '==', projectId),
-      orderBy('createdAt', 'desc')
+      where('userId', '==', userId)
     );
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({
+    const allGroups = querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     } as FirestoreGroup));
+    
+    // Filter by projectId in memory and sort by createdAt
+    return allGroups
+      .filter(group => group.projectId === projectId)
+      .sort((a, b) => {
+        if (!a.createdAt || !b.createdAt) return 0;
+        return b.createdAt.toMillis() - a.createdAt.toMillis();
+      });
   } catch (error) {
     console.error('Error getting groups:', error);
     throw error;
@@ -420,17 +434,24 @@ export const deleteLight = async (id: string, projectId: string): Promise<void> 
 export const getLights = async (userId: string, projectId: string): Promise<FirestoreLight[]> => {
   try {
     const collectionName = getCollectionName(projectId, 'lights');
+    // Simplified query - filter by userId only, then filter projectId in memory
     const q = query(
       collection(db, collectionName), 
-      where('userId', '==', userId),
-      where('projectId', '==', projectId),
-      orderBy('createdAt', 'desc')
+      where('userId', '==', userId)
     );
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({
+    const allLights = querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     } as FirestoreLight));
+    
+    // Filter by projectId in memory and sort by createdAt
+    return allLights
+      .filter(light => light.projectId === projectId)
+      .sort((a, b) => {
+        if (!a.createdAt || !b.createdAt) return 0;
+        return b.createdAt.toMillis() - a.createdAt.toMillis();
+      });
   } catch (error) {
     console.error('Error getting lights:', error);
     throw error;
@@ -469,72 +490,103 @@ export const updateScene = async (id: string, sceneData: Partial<FirestoreScene>
 export const getScenes = async (userId: string, projectId: string): Promise<FirestoreScene[]> => {
   try {
     const collectionName = getCollectionName(projectId, 'scenes');
+    // Simplified query - filter by userId only, then filter projectId in memory
     const q = query(
       collection(db, collectionName), 
-      where('userId', '==', userId),
-      where('projectId', '==', projectId),
-      orderBy('createdAt', 'desc')
+      where('userId', '==', userId)
     );
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({
+    const allScenes = querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     } as FirestoreScene));
+    
+    // Filter by projectId in memory and sort by createdAt
+    return allScenes
+      .filter(scene => scene.projectId === projectId)
+      .sort((a, b) => {
+        if (!a.createdAt || !b.createdAt) return 0;
+        return b.createdAt.toMillis() - a.createdAt.toMillis();
+      });
   } catch (error) {
     console.error('Error getting scenes:', error);
     throw error;
   }
 };
 
-// Real-time listeners with project scoping
+// Real-time listeners with project scoping - simplified to avoid composite index requirements
 export const subscribeToObjects = (userId: string, projectId: string, callback: (objects: FirestoreObject[]) => void) => {
   const collectionName = getCollectionName(projectId, 'objects');
+  // Simplified query - only filter by userId to avoid composite index requirement
   const q = query(
     collection(db, collectionName), 
-    where('userId', '==', userId),
-    where('projectId', '==', projectId),
-    orderBy('createdAt', 'desc')
+    where('userId', '==', userId)
   );
   return onSnapshot(q, (querySnapshot) => {
-    const objects = querySnapshot.docs.map(doc => ({
+    const allObjects = querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     } as FirestoreObject));
-    callback(objects);
+    
+    // Filter by projectId in memory and sort by createdAt
+    const filteredObjects = allObjects
+      .filter(obj => obj.projectId === projectId)
+      .sort((a, b) => {
+        if (!a.createdAt || !b.createdAt) return 0;
+        return b.createdAt.toMillis() - a.createdAt.toMillis();
+      });
+    
+    callback(filteredObjects);
   });
 };
 
 export const subscribeToGroups = (userId: string, projectId: string, callback: (groups: FirestoreGroup[]) => void) => {
   const collectionName = getCollectionName(projectId, 'groups');
+  // Simplified query - only filter by userId to avoid composite index requirement
   const q = query(
     collection(db, collectionName), 
-    where('userId', '==', userId),
-    where('projectId', '==', projectId),
-    orderBy('createdAt', 'desc')
+    where('userId', '==', userId)
   );
   return onSnapshot(q, (querySnapshot) => {
-    const groups = querySnapshot.docs.map(doc => ({
+    const allGroups = querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     } as FirestoreGroup));
-    callback(groups);
+    
+    // Filter by projectId in memory and sort by createdAt
+    const filteredGroups = allGroups
+      .filter(group => group.projectId === projectId)
+      .sort((a, b) => {
+        if (!a.createdAt || !b.createdAt) return 0;
+        return b.createdAt.toMillis() - a.createdAt.toMillis();
+      });
+    
+    callback(filteredGroups);
   });
 };
 
 export const subscribeToLights = (userId: string, projectId: string, callback: (lights: FirestoreLight[]) => void) => {
   const collectionName = getCollectionName(projectId, 'lights');
+  // Simplified query - only filter by userId to avoid composite index requirement
   const q = query(
     collection(db, collectionName), 
-    where('userId', '==', userId),
-    where('projectId', '==', projectId),
-    orderBy('createdAt', 'desc')
+    where('userId', '==', userId)
   );
   return onSnapshot(q, (querySnapshot) => {
-    const lights = querySnapshot.docs.map(doc => ({
+    const allLights = querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     } as FirestoreLight));
-    callback(lights);
+    
+    // Filter by projectId in memory and sort by createdAt
+    const filteredLights = allLights
+      .filter(light => light.projectId === projectId)
+      .sort((a, b) => {
+        if (!a.createdAt || !b.createdAt) return 0;
+        return b.createdAt.toMillis() - a.createdAt.toMillis();
+      });
+    
+    callback(filteredLights);
   });
 };
 
