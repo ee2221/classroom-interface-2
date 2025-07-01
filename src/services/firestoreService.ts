@@ -290,11 +290,10 @@ export const deleteObject = async (id: string, projectId?: string): Promise<void
 export const getObjects = async (userId: string, projectId?: string): Promise<FirestoreObject[]> => {
   try {
     const collectionName = getSharedCollectionName('objects');
-    // Only filter by userId - all objects are shared across projects
+    // Only filter by userId - remove orderBy to avoid index requirement
     const q = query(
       collection(db, collectionName), 
-      where('userId', '==', userId),
-      orderBy('createdAt', 'desc')
+      where('userId', '==', userId)
     );
     const querySnapshot = await getDocs(q);
     
@@ -302,6 +301,14 @@ export const getObjects = async (userId: string, projectId?: string): Promise<Fi
       id: doc.id,
       ...doc.data()
     } as FirestoreObject));
+    
+    // Sort in memory by createdAt if available, otherwise by document ID
+    objects.sort((a, b) => {
+      if (a.createdAt && b.createdAt) {
+        return b.createdAt.toMillis() - a.createdAt.toMillis();
+      }
+      return (b.id || '').localeCompare(a.id || '');
+    });
     
     return objects;
   } catch (error) {
@@ -378,11 +385,10 @@ export const deleteGroup = async (id: string, projectId?: string): Promise<void>
 export const getGroups = async (userId: string, projectId?: string): Promise<FirestoreGroup[]> => {
   try {
     const collectionName = getSharedCollectionName('groups');
-    // Only filter by userId - all groups are shared across projects
+    // Only filter by userId - remove orderBy to avoid index requirement
     const q = query(
       collection(db, collectionName), 
-      where('userId', '==', userId),
-      orderBy('createdAt', 'desc')
+      where('userId', '==', userId)
     );
     const querySnapshot = await getDocs(q);
     
@@ -390,6 +396,14 @@ export const getGroups = async (userId: string, projectId?: string): Promise<Fir
       id: doc.id,
       ...doc.data()
     } as FirestoreGroup));
+    
+    // Sort in memory by createdAt if available, otherwise by document ID
+    groups.sort((a, b) => {
+      if (a.createdAt && b.createdAt) {
+        return b.createdAt.toMillis() - a.createdAt.toMillis();
+      }
+      return (b.id || '').localeCompare(a.id || '');
+    });
     
     return groups;
   } catch (error) {
@@ -446,11 +460,10 @@ export const deleteLight = async (id: string, projectId?: string): Promise<void>
 export const getLights = async (userId: string, projectId?: string): Promise<FirestoreLight[]> => {
   try {
     const collectionName = getSharedCollectionName('lights');
-    // Only filter by userId - all lights are shared across projects
+    // Only filter by userId - remove orderBy to avoid index requirement
     const q = query(
       collection(db, collectionName), 
-      where('userId', '==', userId),
-      orderBy('createdAt', 'desc')
+      where('userId', '==', userId)
     );
     const querySnapshot = await getDocs(q);
     
@@ -458,6 +471,14 @@ export const getLights = async (userId: string, projectId?: string): Promise<Fir
       id: doc.id,
       ...doc.data()
     } as FirestoreLight));
+    
+    // Sort in memory by createdAt if available, otherwise by document ID
+    lights.sort((a, b) => {
+      if (a.createdAt && b.createdAt) {
+        return b.createdAt.toMillis() - a.createdAt.toMillis();
+      }
+      return (b.id || '').localeCompare(a.id || '');
+    });
     
     return lights;
   } catch (error) {
@@ -504,11 +525,10 @@ export const updateScene = async (id: string, sceneData: Partial<FirestoreScene>
 export const getScenes = async (userId: string, projectId?: string): Promise<FirestoreScene[]> => {
   try {
     const collectionName = getSharedCollectionName('scenes');
-    // Only filter by userId - all scenes are shared across projects
+    // Only filter by userId - remove orderBy to avoid index requirement
     const q = query(
       collection(db, collectionName), 
-      where('userId', '==', userId),
-      orderBy('createdAt', 'desc')
+      where('userId', '==', userId)
     );
     const querySnapshot = await getDocs(q);
     
@@ -516,6 +536,14 @@ export const getScenes = async (userId: string, projectId?: string): Promise<Fir
       id: doc.id,
       ...doc.data()
     } as FirestoreScene));
+    
+    // Sort in memory by createdAt if available, otherwise by document ID
+    scenes.sort((a, b) => {
+      if (a.createdAt && b.createdAt) {
+        return b.createdAt.toMillis() - a.createdAt.toMillis();
+      }
+      return (b.id || '').localeCompare(a.id || '');
+    });
     
     return scenes;
   } catch (error) {
@@ -527,68 +555,100 @@ export const getScenes = async (userId: string, projectId?: string): Promise<Fir
 // Real-time listeners with shared database access
 export const subscribeToObjects = (userId: string, projectId: string, callback: (objects: FirestoreObject[]) => void) => {
   const collectionName = getSharedCollectionName('objects');
-  // Only filter by userId for shared access
+  // Only filter by userId for shared access - remove orderBy to avoid index requirement
   const q = query(
     collection(db, collectionName), 
-    where('userId', '==', userId),
-    orderBy('createdAt', 'desc')
+    where('userId', '==', userId)
   );
   return onSnapshot(q, (querySnapshot) => {
     const objects = querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     } as FirestoreObject));
+    
+    // Sort in memory by createdAt if available, otherwise by document ID
+    objects.sort((a, b) => {
+      if (a.createdAt && b.createdAt) {
+        return b.createdAt.toMillis() - a.createdAt.toMillis();
+      }
+      return (b.id || '').localeCompare(a.id || '');
+    });
+    
     callback(objects);
   });
 };
 
 export const subscribeToGroups = (userId: string, projectId: string, callback: (groups: FirestoreGroup[]) => void) => {
   const collectionName = getSharedCollectionName('groups');
-  // Only filter by userId for shared access
+  // Only filter by userId for shared access - remove orderBy to avoid index requirement
   const q = query(
     collection(db, collectionName), 
-    where('userId', '==', userId),
-    orderBy('createdAt', 'desc')
+    where('userId', '==', userId)
   );
   return onSnapshot(q, (querySnapshot) => {
     const groups = querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     } as FirestoreGroup));
+    
+    // Sort in memory by createdAt if available, otherwise by document ID
+    groups.sort((a, b) => {
+      if (a.createdAt && b.createdAt) {
+        return b.createdAt.toMillis() - a.createdAt.toMillis();
+      }
+      return (b.id || '').localeCompare(a.id || '');
+    });
+    
     callback(groups);
   });
 };
 
 export const subscribeToLights = (userId: string, projectId: string, callback: (lights: FirestoreLight[]) => void) => {
   const collectionName = getSharedCollectionName('lights');
-  // Only filter by userId for shared access
+  // Only filter by userId for shared access - remove orderBy to avoid index requirement
   const q = query(
     collection(db, collectionName), 
-    where('userId', '==', userId),
-    orderBy('createdAt', 'desc')
+    where('userId', '==', userId)
   );
   return onSnapshot(q, (querySnapshot) => {
     const lights = querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     } as FirestoreLight));
+    
+    // Sort in memory by createdAt if available, otherwise by document ID
+    lights.sort((a, b) => {
+      if (a.createdAt && b.createdAt) {
+        return b.createdAt.toMillis() - a.createdAt.toMillis();
+      }
+      return (b.id || '').localeCompare(a.id || '');
+    });
+    
     callback(lights);
   });
 };
 
 export const subscribeToScenes = (userId: string, projectId: string, callback: (scenes: FirestoreScene[]) => void) => {
   const collectionName = getSharedCollectionName('scenes');
-  // Only filter by userId for shared access
+  // Only filter by userId for shared access - remove orderBy to avoid index requirement
   const q = query(
     collection(db, collectionName), 
-    where('userId', '==', userId),
-    orderBy('createdAt', 'desc')
+    where('userId', '==', userId)
   );
   return onSnapshot(q, (querySnapshot) => {
     const scenes = querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     } as FirestoreScene));
+    
+    // Sort in memory by createdAt if available, otherwise by document ID
+    scenes.sort((a, b) => {
+      if (a.createdAt && b.createdAt) {
+        return b.createdAt.toMillis() - a.createdAt.toMillis();
+      }
+      return (b.id || '').localeCompare(a.id || '');
+    });
+    
     callback(scenes);
   });
 };
