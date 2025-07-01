@@ -31,7 +31,6 @@ export interface FirestoreObject {
   locked: boolean;
   groupId?: string;
   geometryParams?: any;
-  geometryType?: string; // Add explicit geometry type field
   materialParams?: any;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
@@ -146,297 +145,99 @@ export const objectToFirestore = (object: THREE.Object3D, name: string, id?: str
     };
   }
 
-  // Extract geometry parameters with explicit geometry type detection
+  // Extract geometry parameters with default values to prevent undefined
   if (object instanceof THREE.Mesh) {
     const geometry = object.geometry;
-    
     if (geometry instanceof THREE.BoxGeometry) {
-      firestoreObj.geometryType = 'BoxGeometry';
       firestoreObj.geometryParams = {
         width: geometry.parameters.width ?? 1,
         height: geometry.parameters.height ?? 1,
-        depth: geometry.parameters.depth ?? 1,
-        widthSegments: geometry.parameters.widthSegments ?? 1,
-        heightSegments: geometry.parameters.heightSegments ?? 1,
-        depthSegments: geometry.parameters.depthSegments ?? 1
+        depth: geometry.parameters.depth ?? 1
       };
     } else if (geometry instanceof THREE.SphereGeometry) {
-      firestoreObj.geometryType = 'SphereGeometry';
       firestoreObj.geometryParams = {
         radius: geometry.parameters.radius ?? 0.5,
         widthSegments: geometry.parameters.widthSegments ?? 32,
-        heightSegments: geometry.parameters.heightSegments ?? 16,
-        phiStart: geometry.parameters.phiStart ?? 0,
-        phiLength: geometry.parameters.phiLength ?? Math.PI * 2,
-        thetaStart: geometry.parameters.thetaStart ?? 0,
-        thetaLength: geometry.parameters.thetaLength ?? Math.PI
+        heightSegments: geometry.parameters.heightSegments ?? 16
       };
     } else if (geometry instanceof THREE.CylinderGeometry) {
-      firestoreObj.geometryType = 'CylinderGeometry';
       firestoreObj.geometryParams = {
         radiusTop: geometry.parameters.radiusTop ?? 0.5,
         radiusBottom: geometry.parameters.radiusBottom ?? 0.5,
         height: geometry.parameters.height ?? 1,
-        radialSegments: geometry.parameters.radialSegments ?? 32,
-        heightSegments: geometry.parameters.heightSegments ?? 1,
-        openEnded: geometry.parameters.openEnded ?? false,
-        thetaStart: geometry.parameters.thetaStart ?? 0,
-        thetaLength: geometry.parameters.thetaLength ?? Math.PI * 2
+        radialSegments: geometry.parameters.radialSegments ?? 32
       };
     } else if (geometry instanceof THREE.ConeGeometry) {
-      firestoreObj.geometryType = 'ConeGeometry';
       firestoreObj.geometryParams = {
         radius: geometry.parameters.radius ?? 0.5,
         height: geometry.parameters.height ?? 1,
-        radialSegments: geometry.parameters.radialSegments ?? 32,
-        heightSegments: geometry.parameters.heightSegments ?? 1,
-        openEnded: geometry.parameters.openEnded ?? false,
-        thetaStart: geometry.parameters.thetaStart ?? 0,
-        thetaLength: geometry.parameters.thetaLength ?? Math.PI * 2
+        radialSegments: geometry.parameters.radialSegments ?? 32
       };
-    } else if (geometry instanceof THREE.PlaneGeometry) {
-      firestoreObj.geometryType = 'PlaneGeometry';
-      firestoreObj.geometryParams = {
-        width: geometry.parameters.width ?? 1,
-        height: geometry.parameters.height ?? 1,
-        widthSegments: geometry.parameters.widthSegments ?? 1,
-        heightSegments: geometry.parameters.heightSegments ?? 1
-      };
-    } else if (geometry instanceof THREE.TorusGeometry) {
-      firestoreObj.geometryType = 'TorusGeometry';
-      firestoreObj.geometryParams = {
-        radius: geometry.parameters.radius ?? 1,
-        tube: geometry.parameters.tube ?? 0.4,
-        radialSegments: geometry.parameters.radialSegments ?? 12,
-        tubularSegments: geometry.parameters.tubularSegments ?? 48,
-        arc: geometry.parameters.arc ?? Math.PI * 2
-      };
-    } else {
-      // Unknown geometry type - store as much info as possible
-      firestoreObj.geometryType = 'UnknownGeometry';
-      firestoreObj.geometryParams = {
-        fallbackType: 'box',
-        width: 1,
-        height: 1,
-        depth: 1
-      };
-      console.warn('Unknown geometry type detected:', geometry.constructor.name);
     }
-  } else if (object instanceof THREE.Group) {
-    firestoreObj.geometryType = 'Group';
-    firestoreObj.geometryParams = {
-      childCount: object.children.length
-    };
   }
-
-  console.log('Converted object to Firestore:', {
-    name: firestoreObj.name,
-    type: firestoreObj.type,
-    geometryType: firestoreObj.geometryType,
-    geometryParams: firestoreObj.geometryParams
-  });
 
   return firestoreObj;
 };
 
 // Helper function to convert Firestore data back to THREE.js object
 export const firestoreToObject = (data: FirestoreObject): THREE.Object3D | null => {
-  console.log('Converting Firestore object to THREE.js:', {
-    name: data.name,
-    type: data.type,
-    geometryType: data.geometryType,
-    geometryParams: data.geometryParams
-  });
-
   let object: THREE.Object3D | null = null;
 
-  // Create geometry based on explicit geometry type first, then fallback to legacy detection
+  // Create geometry based on type and parameters
   if (data.type === 'Mesh' && data.geometryParams) {
     let geometry: THREE.BufferGeometry;
     
-    try {
-      // Use explicit geometry type if available
-      if (data.geometryType) {
-        switch (data.geometryType) {
-          case 'BoxGeometry':
-            geometry = new THREE.BoxGeometry(
-              data.geometryParams.width || 1,
-              data.geometryParams.height || 1,
-              data.geometryParams.depth || 1,
-              data.geometryParams.widthSegments || 1,
-              data.geometryParams.heightSegments || 1,
-              data.geometryParams.depthSegments || 1
-            );
-            console.log('Created BoxGeometry with params:', data.geometryParams);
-            break;
-
-          case 'SphereGeometry':
-            geometry = new THREE.SphereGeometry(
-              data.geometryParams.radius || 0.5,
-              data.geometryParams.widthSegments || 32,
-              data.geometryParams.heightSegments || 16,
-              data.geometryParams.phiStart || 0,
-              data.geometryParams.phiLength || Math.PI * 2,
-              data.geometryParams.thetaStart || 0,
-              data.geometryParams.thetaLength || Math.PI
-            );
-            console.log('Created SphereGeometry with params:', data.geometryParams);
-            break;
-
-          case 'CylinderGeometry':
-            geometry = new THREE.CylinderGeometry(
-              data.geometryParams.radiusTop || 0.5,
-              data.geometryParams.radiusBottom || 0.5,
-              data.geometryParams.height || 1,
-              data.geometryParams.radialSegments || 32,
-              data.geometryParams.heightSegments || 1,
-              data.geometryParams.openEnded || false,
-              data.geometryParams.thetaStart || 0,
-              data.geometryParams.thetaLength || Math.PI * 2
-            );
-            console.log('Created CylinderGeometry with params:', data.geometryParams);
-            break;
-
-          case 'ConeGeometry':
-            geometry = new THREE.ConeGeometry(
-              data.geometryParams.radius || 0.5,
-              data.geometryParams.height || 1,
-              data.geometryParams.radialSegments || 32,
-              data.geometryParams.heightSegments || 1,
-              data.geometryParams.openEnded || false,
-              data.geometryParams.thetaStart || 0,
-              data.geometryParams.thetaLength || Math.PI * 2
-            );
-            console.log('Created ConeGeometry with params:', data.geometryParams);
-            break;
-
-          case 'PlaneGeometry':
-            geometry = new THREE.PlaneGeometry(
-              data.geometryParams.width || 1,
-              data.geometryParams.height || 1,
-              data.geometryParams.widthSegments || 1,
-              data.geometryParams.heightSegments || 1
-            );
-            console.log('Created PlaneGeometry with params:', data.geometryParams);
-            break;
-
-          case 'TorusGeometry':
-            geometry = new THREE.TorusGeometry(
-              data.geometryParams.radius || 1,
-              data.geometryParams.tube || 0.4,
-              data.geometryParams.radialSegments || 12,
-              data.geometryParams.tubularSegments || 48,
-              data.geometryParams.arc || Math.PI * 2
-            );
-            console.log('Created TorusGeometry with params:', data.geometryParams);
-            break;
-
-          default:
-            console.warn('Unknown geometry type, falling back to box:', data.geometryType);
-            geometry = new THREE.BoxGeometry(1, 1, 1);
-        }
-      } else {
-        // Legacy detection based on parameter presence
-        console.log('No explicit geometry type, using legacy detection');
-        
-        if (data.geometryParams.width !== undefined && data.geometryParams.depth !== undefined) {
-          // Box geometry - has width, height, and depth
-          geometry = new THREE.BoxGeometry(
-            data.geometryParams.width || 1,
-            data.geometryParams.height || 1,
-            data.geometryParams.depth || 1
-          );
-          console.log('Legacy: Created box geometry');
-        } else if (data.geometryParams.radius !== undefined && data.geometryParams.widthSegments !== undefined) {
-          // Sphere geometry - has radius and segments
-          geometry = new THREE.SphereGeometry(
-            data.geometryParams.radius || 0.5,
-            data.geometryParams.widthSegments || 32,
-            data.geometryParams.heightSegments || 16
-          );
-          console.log('Legacy: Created sphere geometry');
-        } else if (data.geometryParams.radiusTop !== undefined) {
-          // Cylinder geometry - has radiusTop and radiusBottom
-          geometry = new THREE.CylinderGeometry(
-            data.geometryParams.radiusTop || 0.5,
-            data.geometryParams.radiusBottom || 0.5,
-            data.geometryParams.height || 1,
-            data.geometryParams.radialSegments || 32
-          );
-          console.log('Legacy: Created cylinder geometry');
-        } else if (data.geometryParams.radius !== undefined && data.geometryParams.radialSegments !== undefined) {
-          // Cone geometry - has radius and radialSegments but no radiusTop
-          geometry = new THREE.ConeGeometry(
-            data.geometryParams.radius || 0.5,
-            data.geometryParams.height || 1,
-            data.geometryParams.radialSegments || 32
-          );
-          console.log('Legacy: Created cone geometry');
-        } else {
-          // Default fallback
-          console.warn('Could not determine geometry type from params, using default box:', data.geometryParams);
-          geometry = new THREE.BoxGeometry(1, 1, 1);
-        }
-      }
-
-      // Create material with proper defaults
-      const materialParams = {
-        color: data.color || '#44aa88',
-        transparent: data.opacity < 1,
-        opacity: data.opacity || 1,
-        metalness: 0.1,
-        roughness: 0.7,
-        ...(data.materialParams || {})
-      };
-
-      const material = new THREE.MeshStandardMaterial(materialParams);
-      object = new THREE.Mesh(geometry, material);
-      
-      console.log('Successfully created mesh with material:', materialParams);
-    } catch (error) {
-      console.error('Error creating geometry:', error, data.geometryParams);
-      // Fallback to default box
+    if (data.geometryParams.width !== undefined) {
+      // Box geometry
+      geometry = new THREE.BoxGeometry(
+        data.geometryParams.width,
+        data.geometryParams.height,
+        data.geometryParams.depth
+      );
+    } else if (data.geometryParams.radius !== undefined && data.geometryParams.widthSegments !== undefined) {
+      // Sphere geometry
+      geometry = new THREE.SphereGeometry(
+        data.geometryParams.radius,
+        data.geometryParams.widthSegments,
+        data.geometryParams.heightSegments
+      );
+    } else if (data.geometryParams.radiusTop !== undefined) {
+      // Cylinder geometry
+      geometry = new THREE.CylinderGeometry(
+        data.geometryParams.radiusTop,
+        data.geometryParams.radiusBottom,
+        data.geometryParams.height,
+        data.geometryParams.radialSegments
+      );
+    } else if (data.geometryParams.radius !== undefined && data.geometryParams.radialSegments !== undefined) {
+      // Cone geometry
+      geometry = new THREE.ConeGeometry(
+        data.geometryParams.radius,
+        data.geometryParams.height,
+        data.geometryParams.radialSegments
+      );
+    } else {
+      // Default to box
       geometry = new THREE.BoxGeometry(1, 1, 1);
-      const material = new THREE.MeshStandardMaterial({ color: data.color || '#44aa88' });
-      object = new THREE.Mesh(geometry, material);
     }
-  } else if (data.type === 'Group' || data.geometryType === 'Group') {
-    // Handle group objects (like trees, etc.)
-    object = new THREE.Group();
-    console.log('Created group object');
-  } else {
-    console.warn('Unknown object type or missing geometry params:', data.type, data.geometryType, data.geometryParams);
-    // Fallback to default box
-    const geometry = new THREE.BoxGeometry(1, 1, 1);
-    const material = new THREE.MeshStandardMaterial({ color: data.color || '#44aa88' });
+
+    // Create material
+    const material = new THREE.MeshStandardMaterial({
+      color: data.color,
+      transparent: data.opacity < 1,
+      opacity: data.opacity,
+      ...data.materialParams
+    });
+
     object = new THREE.Mesh(geometry, material);
   }
 
   if (object) {
-    // Set transform properties with proper defaults
-    object.position.set(
-      data.position?.x || 0, 
-      data.position?.y || 0, 
-      data.position?.z || 0
-    );
-    object.rotation.set(
-      data.rotation?.x || 0, 
-      data.rotation?.y || 0, 
-      data.rotation?.z || 0
-    );
-    object.scale.set(
-      data.scale?.x || 1, 
-      data.scale?.y || 1, 
-      data.scale?.z || 1
-    );
-    object.visible = data.visible !== false; // Default to visible if not specified
-    
-    console.log('Set object properties:', {
-      position: object.position,
-      rotation: object.rotation,
-      scale: object.scale,
-      visible: object.visible
-    });
+    // Set transform properties
+    object.position.set(data.position.x, data.position.y, data.position.z);
+    object.rotation.set(data.rotation.x, data.rotation.y, data.rotation.z);
+    object.scale.set(data.scale.x, data.scale.y, data.scale.z);
+    object.visible = data.visible;
   }
 
   return object;
