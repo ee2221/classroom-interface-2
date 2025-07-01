@@ -252,65 +252,114 @@ const createLight = (type: 'directional' | 'point' | 'spot', position: number[],
   return light;
 };
 
-// Helper function to convert Firestore data back to THREE.js object
+// Improved helper function to convert Firestore data back to THREE.js object
 const firestoreToObject = (data: FirestoreObject): THREE.Object3D | null => {
+  console.log('Converting Firestore object to THREE.js:', data);
+  
   let object: THREE.Object3D | null = null;
 
   // Create geometry based on type and parameters
   if (data.type === 'Mesh' && data.geometryParams) {
     let geometry: THREE.BufferGeometry;
     
-    if (data.geometryParams.width !== undefined) {
-      // Box geometry
-      geometry = new THREE.BoxGeometry(
-        data.geometryParams.width,
-        data.geometryParams.height,
-        data.geometryParams.depth
-      );
-    } else if (data.geometryParams.radius !== undefined && data.geometryParams.widthSegments !== undefined) {
-      // Sphere geometry
-      geometry = new THREE.SphereGeometry(
-        data.geometryParams.radius,
-        data.geometryParams.widthSegments,
-        data.geometryParams.heightSegments
-      );
-    } else if (data.geometryParams.radiusTop !== undefined) {
-      // Cylinder geometry
-      geometry = new THREE.CylinderGeometry(
-        data.geometryParams.radiusTop,
-        data.geometryParams.radiusBottom,
-        data.geometryParams.height,
-        data.geometryParams.radialSegments
-      );
-    } else if (data.geometryParams.radius !== undefined && data.geometryParams.radialSegments !== undefined) {
-      // Cone geometry
-      geometry = new THREE.ConeGeometry(
-        data.geometryParams.radius,
-        data.geometryParams.height,
-        data.geometryParams.radialSegments
-      );
-    } else {
-      // Default to box
+    try {
+      if (data.geometryParams.width !== undefined) {
+        // Box geometry
+        geometry = new THREE.BoxGeometry(
+          data.geometryParams.width || 1,
+          data.geometryParams.height || 1,
+          data.geometryParams.depth || 1
+        );
+        console.log('Created box geometry:', data.geometryParams);
+      } else if (data.geometryParams.radius !== undefined && data.geometryParams.widthSegments !== undefined) {
+        // Sphere geometry
+        geometry = new THREE.SphereGeometry(
+          data.geometryParams.radius || 0.5,
+          data.geometryParams.widthSegments || 32,
+          data.geometryParams.heightSegments || 16
+        );
+        console.log('Created sphere geometry:', data.geometryParams);
+      } else if (data.geometryParams.radiusTop !== undefined) {
+        // Cylinder geometry
+        geometry = new THREE.CylinderGeometry(
+          data.geometryParams.radiusTop || 0.5,
+          data.geometryParams.radiusBottom || 0.5,
+          data.geometryParams.height || 1,
+          data.geometryParams.radialSegments || 32
+        );
+        console.log('Created cylinder geometry:', data.geometryParams);
+      } else if (data.geometryParams.radius !== undefined && data.geometryParams.radialSegments !== undefined) {
+        // Cone geometry
+        geometry = new THREE.ConeGeometry(
+          data.geometryParams.radius || 0.5,
+          data.geometryParams.height || 1,
+          data.geometryParams.radialSegments || 32
+        );
+        console.log('Created cone geometry:', data.geometryParams);
+      } else {
+        // Default to box if geometry params are unclear
+        console.warn('Unknown geometry parameters, defaulting to box:', data.geometryParams);
+        geometry = new THREE.BoxGeometry(1, 1, 1);
+      }
+
+      // Create material with proper defaults
+      const materialParams = {
+        color: data.color || '#44aa88',
+        transparent: data.opacity < 1,
+        opacity: data.opacity || 1,
+        metalness: 0.1,
+        roughness: 0.7,
+        ...(data.materialParams || {})
+      };
+
+      const material = new THREE.MeshStandardMaterial(materialParams);
+      object = new THREE.Mesh(geometry, material);
+      
+      console.log('Created mesh with material:', materialParams);
+    } catch (error) {
+      console.error('Error creating geometry:', error, data.geometryParams);
+      // Fallback to default box
       geometry = new THREE.BoxGeometry(1, 1, 1);
+      const material = new THREE.MeshStandardMaterial({ color: data.color || '#44aa88' });
+      object = new THREE.Mesh(geometry, material);
     }
-
-    // Create material
-    const material = new THREE.MeshStandardMaterial({
-      color: data.color,
-      transparent: data.opacity < 1,
-      opacity: data.opacity,
-      ...data.materialParams
-    });
-
+  } else if (data.type === 'Group') {
+    // Handle group objects (like trees, etc.)
+    object = new THREE.Group();
+    console.log('Created group object');
+  } else {
+    console.warn('Unknown object type or missing geometry params:', data.type, data.geometryParams);
+    // Fallback to default box
+    const geometry = new THREE.BoxGeometry(1, 1, 1);
+    const material = new THREE.MeshStandardMaterial({ color: data.color || '#44aa88' });
     object = new THREE.Mesh(geometry, material);
   }
 
   if (object) {
-    // Set transform properties
-    object.position.set(data.position.x, data.position.y, data.position.z);
-    object.rotation.set(data.rotation.x, data.rotation.y, data.rotation.z);
-    object.scale.set(data.scale.x, data.scale.y, data.scale.z);
-    object.visible = data.visible;
+    // Set transform properties with proper defaults
+    object.position.set(
+      data.position?.x || 0, 
+      data.position?.y || 0, 
+      data.position?.z || 0
+    );
+    object.rotation.set(
+      data.rotation?.x || 0, 
+      data.rotation?.y || 0, 
+      data.rotation?.z || 0
+    );
+    object.scale.set(
+      data.scale?.x || 1, 
+      data.scale?.y || 1, 
+      data.scale?.z || 1
+    );
+    object.visible = data.visible !== false; // Default to visible if not specified
+    
+    console.log('Set object properties:', {
+      position: object.position,
+      rotation: object.rotation,
+      scale: object.scale,
+      visible: object.visible
+    });
   }
 
   return object;
@@ -320,24 +369,39 @@ export const useSceneStore = create<SceneState>((set, get) => ({
   ...initialState,
 
   // Reset function to clear all scene data when switching projects
-  resetScene: () => set(initialState),
+  resetScene: () => {
+    console.log('Resetting scene to initial state');
+    set(initialState);
+  },
 
   // Load scene data from project document
   loadSceneFromProject: (sceneData) => {
+    console.log('Loading scene from project data:', sceneData);
+    
     // Convert Firestore objects to THREE.js objects
     const threeObjects = sceneData.objects.map(firestoreObj => {
+      console.log('Processing Firestore object:', firestoreObj);
+      
+      if (!firestoreObj.id) {
+        console.warn('Firestore object missing ID, skipping:', firestoreObj);
+        return null;
+      }
+      
       const threeObject = firestoreToObject(firestoreObj);
-      if (threeObject && firestoreObj.id) {
+      if (threeObject) {
+        console.log('Successfully converted object:', firestoreObj.id, firestoreObj.name);
         return {
           id: firestoreObj.id,
           object: threeObject,
-          name: firestoreObj.name,
-          visible: firestoreObj.visible,
-          locked: firestoreObj.locked,
+          name: firestoreObj.name || 'Unnamed Object',
+          visible: firestoreObj.visible !== false,
+          locked: firestoreObj.locked || false,
           groupId: firestoreObj.groupId
         };
+      } else {
+        console.error('Failed to convert Firestore object to THREE.js:', firestoreObj);
+        return null;
       }
-      return null;
     }).filter(Boolean) as Array<{
       id: string;
       object: THREE.Object3D;
@@ -347,22 +411,66 @@ export const useSceneStore = create<SceneState>((set, get) => ({
       groupId?: string;
     }>;
 
+    console.log('Converted objects:', threeObjects.length, 'out of', sceneData.objects.length);
+
     // Convert Firestore lights to scene lights
-    const sceneLights = sceneData.lights.map(firestoreLight => ({
-      ...firestoreLight,
-      object: createLight(firestoreLight.type, firestoreLight.position, firestoreLight.target)
+    const sceneLights = sceneData.lights.map(firestoreLight => {
+      console.log('Processing Firestore light:', firestoreLight);
+      
+      try {
+        const lightObject = createLight(firestoreLight.type, firestoreLight.position, firestoreLight.target);
+        return {
+          ...firestoreLight,
+          object: lightObject
+        };
+      } catch (error) {
+        console.error('Error creating light:', error, firestoreLight);
+        return null;
+      }
+    }).filter(Boolean) as Light[];
+
+    console.log('Converted lights:', sceneLights.length, 'out of', sceneData.lights.length);
+
+    // Ensure groups have proper structure
+    const validGroups = sceneData.groups.map(group => ({
+      id: group.id || crypto.randomUUID(),
+      name: group.name || 'Unnamed Group',
+      expanded: group.expanded !== false,
+      visible: group.visible !== false,
+      locked: group.locked || false,
+      objectIds: group.objectIds || []
     }));
+
+    console.log('Processed groups:', validGroups.length);
+
+    // Update scene settings with proper defaults
+    const updatedSettings = {
+      backgroundColor: sceneData.settings?.backgroundColor || '#0f0f23',
+      showGrid: sceneData.settings?.showGrid !== false,
+      gridSize: sceneData.settings?.gridSize || 10,
+      gridDivisions: sceneData.settings?.gridDivisions || 10,
+      hideAllMenus: sceneData.settings?.hideAllMenus || false,
+      showLightHelpers: sceneData.settings?.showLightHelpers !== false
+    };
+
+    console.log('Final scene state:', {
+      objects: threeObjects.length,
+      groups: validGroups.length,
+      lights: sceneLights.length,
+      settings: updatedSettings
+    });
 
     set({
       objects: threeObjects,
-      groups: sceneData.groups,
+      groups: validGroups,
       lights: sceneLights,
-      sceneSettings: {
-        ...get().sceneSettings,
-        ...sceneData.settings
-      },
-      cameraPerspective: (sceneData.settings.cameraPerspective as CameraPerspective) || 'perspective',
-      cameraZoom: sceneData.settings.cameraZoom || 1
+      sceneSettings: updatedSettings,
+      cameraPerspective: (sceneData.settings?.cameraPerspective as CameraPerspective) || 'perspective',
+      cameraZoom: sceneData.settings?.cameraZoom || 1,
+      selectedObject: null,
+      selectedLight: null,
+      transformMode: null,
+      editMode: null
     });
   },
 
