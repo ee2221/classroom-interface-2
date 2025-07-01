@@ -56,9 +56,9 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [dataLoaded, setDataLoaded] = useState(false);
 
-  // Real-time data loading with Firestore listeners
+  // Real-time data loading with Firestore listeners - now using shared database
   useEffect(() => {
-    if (!user || !projectId) {
+    if (!user) {
       setLoadingProject(false);
       return;
     }
@@ -76,9 +76,9 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
         // Reset scene first
         resetScene();
 
-        // Set up real-time listeners for all data types
+        // Set up real-time listeners for all data types - shared across projects
         objectsUnsubscribe = subscribeToObjects(user.uid, projectId, (firestoreObjects) => {
-          console.log('Received objects update:', firestoreObjects.length);
+          console.log('Received shared objects update:', firestoreObjects.length);
           
           // Clear existing objects and reload from Firestore
           const store = useSceneStore.getState();
@@ -118,7 +118,7 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
         });
 
         groupsUnsubscribe = subscribeToGroups(user.uid, projectId, (firestoreGroups) => {
-          console.log('Received groups update:', firestoreGroups.length);
+          console.log('Received shared groups update:', firestoreGroups.length);
           
           const store = useSceneStore.getState();
           
@@ -137,7 +137,7 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
         });
 
         lightsUnsubscribe = subscribeToLights(user.uid, projectId, (firestoreLights) => {
-          console.log('Received lights update:', firestoreLights.length);
+          console.log('Received shared lights update:', firestoreLights.length);
           
           const store = useSceneStore.getState();
           
@@ -191,7 +191,7 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
           store.lights = newLights;
         });
 
-        // Optional: Load scene settings
+        // Optional: Load scene settings - shared across projects
         scenesUnsubscribe = subscribeToScenes(user.uid, projectId, (firestoreScenes) => {
           if (firestoreScenes.length > 0) {
             const latestScene = firestoreScenes[0]; // Already sorted by createdAt desc
@@ -207,7 +207,7 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
 
       } catch (error) {
         console.error('Error setting up real-time listeners:', error);
-        setLoadError(error instanceof Error ? error.message : 'Failed to load project data');
+        setLoadError(error instanceof Error ? error.message : 'Failed to load shared database');
         setLoadingProject(false);
       }
     };
@@ -221,7 +221,7 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
       if (lightsUnsubscribe) lightsUnsubscribe();
       if (scenesUnsubscribe) scenesUnsubscribe();
     };
-  }, [projectId, user?.uid, resetScene, updateSceneSettings, setCameraPerspective]);
+  }, [user?.uid, resetScene, updateSceneSettings, setCameraPerspective]);
 
   // Auto-save functionality
   useEffect(() => {
@@ -273,18 +273,8 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
         lastOpened: serverTimestamp()
       });
 
-      // Save 3D scene data to cloud (using the scene store's save functionality)
-      const { 
-        objects: sceneObjects, 
-        groups: sceneGroups, 
-        lights: sceneLights, 
-        sceneSettings: settings, 
-        cameraPerspective, 
-        cameraZoom 
-      } = useSceneStore.getState();
-
-      // Here we would save the scene data - for now just the metadata save
-      // The actual scene saving logic would be integrated here
+      // Note: 3D scene data is automatically saved to shared database via real-time listeners
+      // No additional save action needed since all changes are immediately persisted
 
       setSaveStatus('saved');
       setLastSaved(new Date());
@@ -339,8 +329,9 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
       <div className="w-full h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-white/70 text-lg">Loading project...</p>
+          <p className="text-white/70 text-lg">Loading shared database...</p>
           <p className="text-white/50 text-sm mt-2">{projectName}</p>
+          <p className="text-white/40 text-xs mt-1">All projects share the same objects and scenes</p>
         </div>
       </div>
     );
@@ -352,7 +343,7 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
       <div className="w-full h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
         <div className="text-center">
           <AlertCircle className="w-16 h-16 text-red-400 mx-auto mb-4" />
-          <h2 className="text-xl font-bold text-white mb-2">Error Loading Project</h2>
+          <h2 className="text-xl font-bold text-white mb-2">Error Loading Shared Database</h2>
           <p className="text-red-400 mb-4">{loadError}</p>
           <div className="flex gap-4 justify-center">
             <button
@@ -380,7 +371,7 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
         {/* Unified Save Button */}
         <button
           onClick={handleUnifiedSave}
-          disabled={saveStatus === 'saving' || !user || !projectId || !hasContent}
+          disabled={saveStatus === 'saving' || !user || !projectId}
           className={`flex items-center gap-2 px-4 py-3 rounded-xl shadow-2xl shadow-black/20 border transition-all duration-200 font-medium ${
             saveStatus === 'saving'
               ? 'bg-blue-500/20 border-blue-500/30 text-blue-400 cursor-wait'
@@ -388,7 +379,7 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
                 ? 'bg-green-500/20 border-green-500/30 text-green-400 hover:bg-green-500/30 hover:scale-105'
                 : saveStatus === 'error'
                   ? 'bg-red-500/20 border-red-500/30 text-red-400 hover:bg-red-500/30 hover:scale-105'
-                  : !user || !projectId || !hasContent
+                  : !user || !projectId
                     ? 'bg-gray-600/20 border-gray-600/30 text-gray-400 cursor-not-allowed'
                     : 'bg-[#1a1a1a] border-white/5 text-white/90 hover:bg-[#2a2a2a] hover:scale-105'
           }`}
@@ -397,11 +388,9 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
               ? 'Sign in to save'
               : !projectId
                 ? 'Select a project to save'
-                : !hasContent 
-                  ? 'No content to save' 
-                  : saveStatus === 'saving' 
-                    ? 'Saving project and scene data...' 
-                    : 'Save project metadata and scene data to cloud'
+                : saveStatus === 'saving' 
+                  ? 'Saving project metadata...' 
+                  : 'Save project metadata (3D data auto-saves to shared database)'
           }
         >
           {getSaveButtonContent()}
@@ -432,24 +421,29 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
         </div>
       )}
 
-      {/* Scene Info - Below last saved */}
-      {hasContent && saveStatus === 'idle' && user && projectId && (
-        <div className="absolute top-32 left-4 z-40">
-          <div className="bg-[#1a1a1a]/90 border border-white/10 rounded-lg px-3 py-2 text-xs text-white/60">
-            <div className="flex items-center gap-4">
-              {objects.length > 0 && (
-                <span>{objects.length} object{objects.length !== 1 ? 's' : ''}</span>
-              )}
-              {groups.length > 0 && (
-                <span>{groups.length} group{groups.length !== 1 ? 's' : ''}</span>
-              )}
-              {lights.length > 0 && (
-                <span>{lights.length} light{lights.length !== 1 ? 's' : ''}</span>
-              )}
-            </div>
+      {/* Shared Database Info - Below last saved */}
+      <div className="absolute top-32 left-4 z-40">
+        <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2 text-xs">
+          <div className="text-blue-400 font-medium mb-1">Shared Database Active</div>
+          <div className="text-white/60">
+            {hasContent ? (
+              <div className="flex items-center gap-4">
+                {objects.length > 0 && (
+                  <span>{objects.length} object{objects.length !== 1 ? 's' : ''}</span>
+                )}
+                {groups.length > 0 && (
+                  <span>{groups.length} group{groups.length !== 1 ? 's' : ''}</span>
+                )}
+                {lights.length > 0 && (
+                  <span>{lights.length} light{lights.length !== 1 ? 's' : ''}</span>
+                )}
+              </div>
+            ) : (
+              'All projects access the same 3D objects and scenes'
+            )}
           </div>
         </div>
-      )}
+      </div>
 
       {/* 3D Scene */}
       <Scene />

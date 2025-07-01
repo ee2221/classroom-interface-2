@@ -20,7 +20,7 @@ import * as THREE from 'three';
 export interface FirestoreObject {
   id?: string;
   userId?: string;
-  projectId?: string; // Add projectId field
+  projectId?: string; // Keep for compatibility but make optional
   name: string;
   type: string;
   position: { x: number; y: number; z: number };
@@ -40,7 +40,7 @@ export interface FirestoreObject {
 export interface FirestoreGroup {
   id?: string;
   userId?: string;
-  projectId?: string; // Add projectId field
+  projectId?: string; // Keep for compatibility but make optional
   name: string;
   expanded: boolean;
   visible: boolean;
@@ -53,7 +53,7 @@ export interface FirestoreGroup {
 export interface FirestoreLight {
   id?: string;
   userId?: string;
-  projectId?: string; // Add projectId field
+  projectId?: string; // Keep for compatibility but make optional
   name: string;
   type: 'directional' | 'point' | 'spot';
   position: number[];
@@ -73,7 +73,7 @@ export interface FirestoreLight {
 export interface FirestoreScene {
   id?: string;
   userId?: string;
-  projectId?: string; // Add projectId field
+  projectId?: string; // Keep for compatibility but make optional
   name: string;
   description?: string;
   backgroundColor: string;
@@ -86,8 +86,8 @@ export interface FirestoreScene {
   updatedAt?: Timestamp;
 }
 
-// Collection names - now project-specific
-const getCollectionName = (projectId: string, type: string) => `project_${projectId}_${type}`;
+// Collection names - now shared across all projects for a user
+const getSharedCollectionName = (type: string) => `shared_${type}`;
 
 // Helper function to convert THREE.js object to Firestore format
 export const objectToFirestore = (object: THREE.Object3D, name: string, id?: string, userId?: string, projectId?: string): FirestoreObject => {
@@ -116,10 +116,11 @@ export const objectToFirestore = (object: THREE.Object3D, name: string, id?: str
     updatedAt: serverTimestamp()
   };
 
-  // Add userId and projectId if provided
+  // Add userId if provided (required for shared access)
   if (userId) {
     firestoreObj.userId = userId;
   }
+  // Keep projectId for compatibility but it's not used for filtering
   if (projectId) {
     firestoreObj.projectId = projectId;
   }
@@ -240,11 +241,15 @@ export const firestoreToObject = (data: FirestoreObject): THREE.Object3D | null 
   return object;
 };
 
-// Object CRUD operations with project scoping
-export const saveObject = async (objectData: FirestoreObject, userId: string, projectId: string): Promise<string> => {
+// Object CRUD operations with shared database access
+export const saveObject = async (objectData: FirestoreObject, userId: string, projectId?: string): Promise<string> => {
   try {
-    const dataWithIds = { ...objectData, userId, projectId };
-    const collectionName = getCollectionName(projectId, 'objects');
+    const dataWithIds = { ...objectData, userId };
+    // Keep projectId for compatibility but use shared collection
+    if (projectId) {
+      dataWithIds.projectId = projectId;
+    }
+    const collectionName = getSharedCollectionName('objects');
     const docRef = await addDoc(collection(db, collectionName), dataWithIds);
     return docRef.id;
   } catch (error) {
@@ -253,25 +258,28 @@ export const saveObject = async (objectData: FirestoreObject, userId: string, pr
   }
 };
 
-export const updateObject = async (id: string, objectData: Partial<FirestoreObject>, userId: string, projectId: string): Promise<void> => {
+export const updateObject = async (id: string, objectData: Partial<FirestoreObject>, userId: string, projectId?: string): Promise<void> => {
   try {
-    const collectionName = getCollectionName(projectId, 'objects');
+    const collectionName = getSharedCollectionName('objects');
     const objectRef = doc(db, collectionName, id);
-    await updateDoc(objectRef, {
+    const updateData: any = {
       ...objectData,
       userId,
-      projectId,
       updatedAt: serverTimestamp()
-    });
+    };
+    if (projectId) {
+      updateData.projectId = projectId;
+    }
+    await updateDoc(objectRef, updateData);
   } catch (error) {
     console.error('Error updating object:', error);
     throw error;
   }
 };
 
-export const deleteObject = async (id: string, projectId: string): Promise<void> => {
+export const deleteObject = async (id: string, projectId?: string): Promise<void> => {
   try {
-    const collectionName = getCollectionName(projectId, 'objects');
+    const collectionName = getSharedCollectionName('objects');
     await deleteDoc(doc(db, collectionName, id));
   } catch (error) {
     console.error('Error deleting object:', error);
@@ -279,28 +287,21 @@ export const deleteObject = async (id: string, projectId: string): Promise<void>
   }
 };
 
-export const getObjects = async (userId: string, projectId: string): Promise<FirestoreObject[]> => {
+export const getObjects = async (userId: string, projectId?: string): Promise<FirestoreObject[]> => {
   try {
-    const collectionName = getCollectionName(projectId, 'objects');
-    // Use simpler query that only filters by userId to avoid composite index requirement
+    const collectionName = getSharedCollectionName('objects');
+    // Only filter by userId - all objects are shared across projects
     const q = query(
       collection(db, collectionName), 
-      where('userId', '==', userId)
+      where('userId', '==', userId),
+      orderBy('createdAt', 'desc')
     );
     const querySnapshot = await getDocs(q);
     
-    // Filter by projectId and sort in memory to avoid composite index
-    const objects = querySnapshot.docs
-      .map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as FirestoreObject))
-      .filter(obj => obj.projectId === projectId)
-      .sort((a, b) => {
-        // Sort by createdAt in descending order (newest first)
-        if (!a.createdAt || !b.createdAt) return 0;
-        return b.createdAt.toMillis() - a.createdAt.toMillis();
-      });
+    const objects = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as FirestoreObject));
     
     return objects;
   } catch (error) {
@@ -309,9 +310,9 @@ export const getObjects = async (userId: string, projectId: string): Promise<Fir
   }
 };
 
-export const getObject = async (id: string, projectId: string): Promise<FirestoreObject | null> => {
+export const getObject = async (id: string, projectId?: string): Promise<FirestoreObject | null> => {
   try {
-    const collectionName = getCollectionName(projectId, 'objects');
+    const collectionName = getSharedCollectionName('objects');
     const docRef = doc(db, collectionName, id);
     const docSnap = await getDoc(docRef);
     
@@ -329,11 +330,14 @@ export const getObject = async (id: string, projectId: string): Promise<Firestor
   }
 };
 
-// Group CRUD operations with project scoping
-export const saveGroup = async (groupData: FirestoreGroup, userId: string, projectId: string): Promise<string> => {
+// Group CRUD operations with shared database access
+export const saveGroup = async (groupData: FirestoreGroup, userId: string, projectId?: string): Promise<string> => {
   try {
-    const dataWithIds = { ...groupData, userId, projectId };
-    const collectionName = getCollectionName(projectId, 'groups');
+    const dataWithIds = { ...groupData, userId };
+    if (projectId) {
+      dataWithIds.projectId = projectId;
+    }
+    const collectionName = getSharedCollectionName('groups');
     const docRef = await addDoc(collection(db, collectionName), dataWithIds);
     return docRef.id;
   } catch (error) {
@@ -342,25 +346,28 @@ export const saveGroup = async (groupData: FirestoreGroup, userId: string, proje
   }
 };
 
-export const updateGroup = async (id: string, groupData: Partial<FirestoreGroup>, userId: string, projectId: string): Promise<void> => {
+export const updateGroup = async (id: string, groupData: Partial<FirestoreGroup>, userId: string, projectId?: string): Promise<void> => {
   try {
-    const collectionName = getCollectionName(projectId, 'groups');
+    const collectionName = getSharedCollectionName('groups');
     const groupRef = doc(db, collectionName, id);
-    await updateDoc(groupRef, {
+    const updateData: any = {
       ...groupData,
       userId,
-      projectId,
       updatedAt: serverTimestamp()
-    });
+    };
+    if (projectId) {
+      updateData.projectId = projectId;
+    }
+    await updateDoc(groupRef, updateData);
   } catch (error) {
     console.error('Error updating group:', error);
     throw error;
   }
 };
 
-export const deleteGroup = async (id: string, projectId: string): Promise<void> => {
+export const deleteGroup = async (id: string, projectId?: string): Promise<void> => {
   try {
-    const collectionName = getCollectionName(projectId, 'groups');
+    const collectionName = getSharedCollectionName('groups');
     await deleteDoc(doc(db, collectionName, id));
   } catch (error) {
     console.error('Error deleting group:', error);
@@ -368,28 +375,21 @@ export const deleteGroup = async (id: string, projectId: string): Promise<void> 
   }
 };
 
-export const getGroups = async (userId: string, projectId: string): Promise<FirestoreGroup[]> => {
+export const getGroups = async (userId: string, projectId?: string): Promise<FirestoreGroup[]> => {
   try {
-    const collectionName = getCollectionName(projectId, 'groups');
-    // Use simpler query that only filters by userId to avoid composite index requirement
+    const collectionName = getSharedCollectionName('groups');
+    // Only filter by userId - all groups are shared across projects
     const q = query(
       collection(db, collectionName), 
-      where('userId', '==', userId)
+      where('userId', '==', userId),
+      orderBy('createdAt', 'desc')
     );
     const querySnapshot = await getDocs(q);
     
-    // Filter by projectId and sort in memory to avoid composite index
-    const groups = querySnapshot.docs
-      .map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as FirestoreGroup))
-      .filter(group => group.projectId === projectId)
-      .sort((a, b) => {
-        // Sort by createdAt in descending order (newest first)
-        if (!a.createdAt || !b.createdAt) return 0;
-        return b.createdAt.toMillis() - a.createdAt.toMillis();
-      });
+    const groups = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as FirestoreGroup));
     
     return groups;
   } catch (error) {
@@ -398,11 +398,14 @@ export const getGroups = async (userId: string, projectId: string): Promise<Fire
   }
 };
 
-// Light CRUD operations with project scoping
-export const saveLight = async (lightData: FirestoreLight, userId: string, projectId: string): Promise<string> => {
+// Light CRUD operations with shared database access
+export const saveLight = async (lightData: FirestoreLight, userId: string, projectId?: string): Promise<string> => {
   try {
-    const dataWithIds = { ...lightData, userId, projectId };
-    const collectionName = getCollectionName(projectId, 'lights');
+    const dataWithIds = { ...lightData, userId };
+    if (projectId) {
+      dataWithIds.projectId = projectId;
+    }
+    const collectionName = getSharedCollectionName('lights');
     const docRef = await addDoc(collection(db, collectionName), dataWithIds);
     return docRef.id;
   } catch (error) {
@@ -411,25 +414,28 @@ export const saveLight = async (lightData: FirestoreLight, userId: string, proje
   }
 };
 
-export const updateLight = async (id: string, lightData: Partial<FirestoreLight>, userId: string, projectId: string): Promise<void> => {
+export const updateLight = async (id: string, lightData: Partial<FirestoreLight>, userId: string, projectId?: string): Promise<void> => {
   try {
-    const collectionName = getCollectionName(projectId, 'lights');
+    const collectionName = getSharedCollectionName('lights');
     const lightRef = doc(db, collectionName, id);
-    await updateDoc(lightRef, {
+    const updateData: any = {
       ...lightData,
       userId,
-      projectId,
       updatedAt: serverTimestamp()
-    });
+    };
+    if (projectId) {
+      updateData.projectId = projectId;
+    }
+    await updateDoc(lightRef, updateData);
   } catch (error) {
     console.error('Error updating light:', error);
     throw error;
   }
 };
 
-export const deleteLight = async (id: string, projectId: string): Promise<void> => {
+export const deleteLight = async (id: string, projectId?: string): Promise<void> => {
   try {
-    const collectionName = getCollectionName(projectId, 'lights');
+    const collectionName = getSharedCollectionName('lights');
     await deleteDoc(doc(db, collectionName, id));
   } catch (error) {
     console.error('Error deleting light:', error);
@@ -437,28 +443,21 @@ export const deleteLight = async (id: string, projectId: string): Promise<void> 
   }
 };
 
-export const getLights = async (userId: string, projectId: string): Promise<FirestoreLight[]> => {
+export const getLights = async (userId: string, projectId?: string): Promise<FirestoreLight[]> => {
   try {
-    const collectionName = getCollectionName(projectId, 'lights');
-    // Use simpler query that only filters by userId to avoid composite index requirement
+    const collectionName = getSharedCollectionName('lights');
+    // Only filter by userId - all lights are shared across projects
     const q = query(
       collection(db, collectionName), 
-      where('userId', '==', userId)
+      where('userId', '==', userId),
+      orderBy('createdAt', 'desc')
     );
     const querySnapshot = await getDocs(q);
     
-    // Filter by projectId and sort in memory to avoid composite index
-    const lights = querySnapshot.docs
-      .map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as FirestoreLight))
-      .filter(light => light.projectId === projectId)
-      .sort((a, b) => {
-        // Sort by createdAt in descending order (newest first)
-        if (!a.createdAt || !b.createdAt) return 0;
-        return b.createdAt.toMillis() - a.createdAt.toMillis();
-      });
+    const lights = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as FirestoreLight));
     
     return lights;
   } catch (error) {
@@ -467,11 +466,14 @@ export const getLights = async (userId: string, projectId: string): Promise<Fire
   }
 };
 
-// Scene CRUD operations with project scoping
-export const saveScene = async (sceneData: FirestoreScene, userId: string, projectId: string): Promise<string> => {
+// Scene CRUD operations with shared database access
+export const saveScene = async (sceneData: FirestoreScene, userId: string, projectId?: string): Promise<string> => {
   try {
-    const dataWithIds = { ...sceneData, userId, projectId };
-    const collectionName = getCollectionName(projectId, 'scenes');
+    const dataWithIds = { ...sceneData, userId };
+    if (projectId) {
+      dataWithIds.projectId = projectId;
+    }
+    const collectionName = getSharedCollectionName('scenes');
     const docRef = await addDoc(collection(db, collectionName), dataWithIds);
     return docRef.id;
   } catch (error) {
@@ -480,44 +482,40 @@ export const saveScene = async (sceneData: FirestoreScene, userId: string, proje
   }
 };
 
-export const updateScene = async (id: string, sceneData: Partial<FirestoreScene>, userId: string, projectId: string): Promise<void> => {
+export const updateScene = async (id: string, sceneData: Partial<FirestoreScene>, userId: string, projectId?: string): Promise<void> => {
   try {
-    const collectionName = getCollectionName(projectId, 'scenes');
+    const collectionName = getSharedCollectionName('scenes');
     const sceneRef = doc(db, collectionName, id);
-    await updateDoc(sceneRef, {
+    const updateData: any = {
       ...sceneData,
       userId,
-      projectId,
       updatedAt: serverTimestamp()
-    });
+    };
+    if (projectId) {
+      updateData.projectId = projectId;
+    }
+    await updateDoc(sceneRef, updateData);
   } catch (error) {
     console.error('Error updating scene:', error);
     throw error;
   }
 };
 
-export const getScenes = async (userId: string, projectId: string): Promise<FirestoreScene[]> => {
+export const getScenes = async (userId: string, projectId?: string): Promise<FirestoreScene[]> => {
   try {
-    const collectionName = getCollectionName(projectId, 'scenes');
-    // Use simpler query that only filters by userId to avoid composite index requirement
+    const collectionName = getSharedCollectionName('scenes');
+    // Only filter by userId - all scenes are shared across projects
     const q = query(
       collection(db, collectionName), 
-      where('userId', '==', userId)
+      where('userId', '==', userId),
+      orderBy('createdAt', 'desc')
     );
     const querySnapshot = await getDocs(q);
     
-    // Filter by projectId and sort in memory to avoid composite index
-    const scenes = querySnapshot.docs
-      .map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as FirestoreScene))
-      .filter(scene => scene.projectId === projectId)
-      .sort((a, b) => {
-        // Sort by createdAt in descending order (newest first)
-        if (!a.createdAt || !b.createdAt) return 0;
-        return b.createdAt.toMillis() - a.createdAt.toMillis();
-      });
+    const scenes = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as FirestoreScene));
     
     return scenes;
   } catch (error) {
@@ -526,101 +524,77 @@ export const getScenes = async (userId: string, projectId: string): Promise<Fire
   }
 };
 
-// Real-time listeners with project scoping
+// Real-time listeners with shared database access
 export const subscribeToObjects = (userId: string, projectId: string, callback: (objects: FirestoreObject[]) => void) => {
-  const collectionName = getCollectionName(projectId, 'objects');
-  // Use simpler query for real-time listener
+  const collectionName = getSharedCollectionName('objects');
+  // Only filter by userId for shared access
   const q = query(
     collection(db, collectionName), 
-    where('userId', '==', userId)
+    where('userId', '==', userId),
+    orderBy('createdAt', 'desc')
   );
   return onSnapshot(q, (querySnapshot) => {
-    const objects = querySnapshot.docs
-      .map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as FirestoreObject))
-      .filter(obj => obj.projectId === projectId)
-      .sort((a, b) => {
-        // Sort by createdAt in descending order (newest first)
-        if (!a.createdAt || !b.createdAt) return 0;
-        return b.createdAt.toMillis() - a.createdAt.toMillis();
-      });
+    const objects = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as FirestoreObject));
     callback(objects);
   });
 };
 
 export const subscribeToGroups = (userId: string, projectId: string, callback: (groups: FirestoreGroup[]) => void) => {
-  const collectionName = getCollectionName(projectId, 'groups');
-  // Use simpler query for real-time listener
+  const collectionName = getSharedCollectionName('groups');
+  // Only filter by userId for shared access
   const q = query(
     collection(db, collectionName), 
-    where('userId', '==', userId)
+    where('userId', '==', userId),
+    orderBy('createdAt', 'desc')
   );
   return onSnapshot(q, (querySnapshot) => {
-    const groups = querySnapshot.docs
-      .map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as FirestoreGroup))
-      .filter(group => group.projectId === projectId)
-      .sort((a, b) => {
-        // Sort by createdAt in descending order (newest first)
-        if (!a.createdAt || !b.createdAt) return 0;
-        return b.createdAt.toMillis() - a.createdAt.toMillis();
-      });
+    const groups = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as FirestoreGroup));
     callback(groups);
   });
 };
 
 export const subscribeToLights = (userId: string, projectId: string, callback: (lights: FirestoreLight[]) => void) => {
-  const collectionName = getCollectionName(projectId, 'lights');
-  // Use simpler query for real-time listener
+  const collectionName = getSharedCollectionName('lights');
+  // Only filter by userId for shared access
   const q = query(
     collection(db, collectionName), 
-    where('userId', '==', userId)
+    where('userId', '==', userId),
+    orderBy('createdAt', 'desc')
   );
   return onSnapshot(q, (querySnapshot) => {
-    const lights = querySnapshot.docs
-      .map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as FirestoreLight))
-      .filter(light => light.projectId === projectId)
-      .sort((a, b) => {
-        // Sort by createdAt in descending order (newest first)
-        if (!a.createdAt || !b.createdAt) return 0;
-        return b.createdAt.toMillis() - a.createdAt.toMillis();
-      });
+    const lights = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as FirestoreLight));
     callback(lights);
   });
 };
 
 export const subscribeToScenes = (userId: string, projectId: string, callback: (scenes: FirestoreScene[]) => void) => {
-  const collectionName = getCollectionName(projectId, 'scenes');
-  // Use simpler query for real-time listener
+  const collectionName = getSharedCollectionName('scenes');
+  // Only filter by userId for shared access
   const q = query(
     collection(db, collectionName), 
-    where('userId', '==', userId)
+    where('userId', '==', userId),
+    orderBy('createdAt', 'desc')
   );
   return onSnapshot(q, (querySnapshot) => {
-    const scenes = querySnapshot.docs
-      .map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as FirestoreScene))
-      .filter(scene => scene.projectId === projectId)
-      .sort((a, b) => {
-        // Sort by createdAt in descending order (newest first)
-        if (!a.createdAt || !b.createdAt) return 0;
-        return b.createdAt.toMillis() - a.createdAt.toMillis();
-      });
+    const scenes = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as FirestoreScene));
     callback(scenes);
   });
 };
 
 // Batch operations for better performance
-export const saveObjectsBatch = async (objects: FirestoreObject[], userId: string, projectId: string): Promise<void> => {
+export const saveObjectsBatch = async (objects: FirestoreObject[], userId: string, projectId?: string): Promise<void> => {
   try {
     const batch = [];
     for (const obj of objects) {
@@ -633,7 +607,7 @@ export const saveObjectsBatch = async (objects: FirestoreObject[], userId: strin
   }
 };
 
-export const deleteObjectsBatch = async (ids: string[], projectId: string): Promise<void> => {
+export const deleteObjectsBatch = async (ids: string[], projectId?: string): Promise<void> => {
   try {
     const batch = [];
     for (const id of ids) {
@@ -646,15 +620,15 @@ export const deleteObjectsBatch = async (ids: string[], projectId: string): Prom
   }
 };
 
-// Project cleanup function - deletes all project data
-export const deleteProjectData = async (projectId: string): Promise<void> => {
+// User data cleanup function - deletes all user data across shared collections
+export const deleteUserData = async (userId: string): Promise<void> => {
   try {
     const collections = ['objects', 'groups', 'lights', 'scenes'];
     const deletePromises = [];
 
     for (const collectionType of collections) {
-      const collectionName = getCollectionName(projectId, collectionType);
-      const q = query(collection(db, collectionName));
+      const collectionName = getSharedCollectionName(collectionType);
+      const q = query(collection(db, collectionName), where('userId', '==', userId));
       const querySnapshot = await getDocs(q);
       
       querySnapshot.docs.forEach(doc => {
@@ -664,7 +638,7 @@ export const deleteProjectData = async (projectId: string): Promise<void> => {
 
     await Promise.all(deletePromises);
   } catch (error) {
-    console.error('Error deleting project data:', error);
+    console.error('Error deleting user data:', error);
     throw error;
   }
 };
