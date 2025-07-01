@@ -1,7 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowLeft, Save, Cloud, AlertCircle, Loader2 } from 'lucide-react';
-import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../config/firebase';
 import Scene from './Scene';
 import Toolbar from './Toolbar';
 import ActionsToolbar from './ActionsToolbar';
@@ -12,6 +10,12 @@ import CameraPerspectivePanel from './CameraPerspectivePanel';
 import LightingPanel from './LightingPanel';
 import SettingsPanel, { HideInterfaceButton } from './SettingsPanel';
 import { useSceneStore } from '../store/sceneStore';
+import { useProject } from '../hooks/useFirestore';
+import { 
+  updateProjectMetadata,
+  saveSceneToProject,
+  objectToFirestore
+} from '../services/firestoreService';
 
 interface ProjectWrapperProps {
   projectId: string;
@@ -26,9 +30,29 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
   user, 
   onBackToClassroom 
 }) => {
-  const { sceneSettings, objects, groups, lights } = useSceneStore();
+  const { sceneSettings, objects, groups, lights, resetScene } = useSceneStore();
+  const { project, loading, error } = useProject(projectId);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+
+  // Load project data into scene store when project loads
+  useEffect(() => {
+    if (project && project.sceneData) {
+      // Reset scene first
+      resetScene();
+      
+      // Load scene data into the store
+      const { loadSceneFromProject } = useSceneStore.getState();
+      if (loadSceneFromProject) {
+        loadSceneFromProject(project.sceneData);
+      }
+    }
+  }, [project, resetScene]);
+
+  // Reset scene when project changes
+  useEffect(() => {
+    resetScene();
+  }, [projectId, resetScene]);
 
   // Auto-save functionality
   useEffect(() => {
@@ -39,10 +63,8 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
         setSaveStatus('saving');
         
         // Update project metadata
-        await updateDoc(doc(db, 'projects', projectId), {
-          updatedAt: serverTimestamp(),
-          objectCount: objects.length,
-          lastOpened: serverTimestamp()
+        await updateProjectMetadata(projectId, {
+          lastOpened: new Date() as any
         });
 
         setSaveStatus('saved');
@@ -74,24 +96,49 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
       setSaveStatus('saving');
       
       // Save project metadata
-      await updateDoc(doc(db, 'projects', projectId), {
-        updatedAt: serverTimestamp(),
-        objectCount: objects.length,
-        lastOpened: serverTimestamp()
+      await updateProjectMetadata(projectId, {
+        lastOpened: new Date() as any
       });
 
-      // Save 3D scene data to cloud (using the scene store's save functionality)
-      const { 
-        objects: sceneObjects, 
-        groups: sceneGroups, 
-        lights: sceneLights, 
-        sceneSettings: settings, 
-        cameraPerspective, 
-        cameraZoom 
-      } = useSceneStore.getState();
+      // Save complete scene data to project document
+      const sceneData = {
+        objects: objects.map(obj => objectToFirestore(obj.object, obj.name, obj.id)),
+        groups: groups.map(group => ({
+          id: group.id,
+          name: group.name,
+          expanded: group.expanded,
+          visible: group.visible,
+          locked: group.locked,
+          objectIds: group.objectIds
+        })),
+        lights: lights.map(light => ({
+          id: light.id,
+          name: light.name,
+          type: light.type,
+          position: light.position,
+          target: light.target,
+          intensity: light.intensity,
+          color: light.color,
+          visible: light.visible,
+          castShadow: light.castShadow,
+          distance: light.distance,
+          decay: light.decay,
+          angle: light.angle,
+          penumbra: light.penumbra
+        })),
+        settings: {
+          backgroundColor: sceneSettings.backgroundColor,
+          showGrid: sceneSettings.showGrid,
+          gridSize: sceneSettings.gridSize,
+          gridDivisions: sceneSettings.gridDivisions,
+          cameraPerspective: useSceneStore.getState().cameraPerspective,
+          cameraZoom: useSceneStore.getState().cameraZoom,
+          showLightHelpers: sceneSettings.showLightHelpers,
+          hideAllMenus: sceneSettings.hideAllMenus
+        }
+      };
 
-      // Here we would save the scene data - for now just the metadata save
-      // The actual scene saving logic would be integrated here
+      await saveSceneToProject(projectId, sceneData);
 
       setSaveStatus('saved');
       setLastSaved(new Date());
@@ -140,6 +187,36 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
 
   const hasContent = objects.length > 0 || groups.length > 0 || lights.length > 0;
 
+  if (loading) {
+    return (
+      <div className="w-full h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-white/70 text-lg">Loading project...</p>
+          <p className="text-white/50 text-sm mt-2">{projectName}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="w-full h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <AlertCircle className="w-16 h-16 text-red-400 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-white mb-2">Error Loading Project</h2>
+          <p className="text-red-400 mb-4">{error}</p>
+          <button
+            onClick={onBackToClassroom}
+            className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-xl font-medium transition-colors"
+          >
+            Back to Classroom
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full h-screen relative">
       {/* Top Left Button Bar - Horizontal Layout */}
@@ -147,7 +224,7 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
         {/* Unified Save Button */}
         <button
           onClick={handleUnifiedSave}
-          disabled={saveStatus === 'saving' || !user || !projectId || !hasContent}
+          disabled={saveStatus === 'saving' || !user || !projectId}
           className={`flex items-center gap-2 px-4 py-3 rounded-xl shadow-2xl shadow-black/20 border transition-all duration-200 font-medium ${
             saveStatus === 'saving'
               ? 'bg-blue-500/20 border-blue-500/30 text-blue-400 cursor-wait'
@@ -155,7 +232,7 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
                 ? 'bg-green-500/20 border-green-500/30 text-green-400 hover:bg-green-500/30 hover:scale-105'
                 : saveStatus === 'error'
                   ? 'bg-red-500/20 border-red-500/30 text-red-400 hover:bg-red-500/30 hover:scale-105'
-                  : !user || !projectId || !hasContent
+                  : !user || !projectId
                     ? 'bg-gray-600/20 border-gray-600/30 text-gray-400 cursor-not-allowed'
                     : 'bg-[#1a1a1a] border-white/5 text-white/90 hover:bg-[#2a2a2a] hover:scale-105'
           }`}
@@ -164,11 +241,9 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
               ? 'Sign in to save'
               : !projectId
                 ? 'Select a project to save'
-                : !hasContent 
-                  ? 'No content to save' 
-                  : saveStatus === 'saving' 
-                    ? 'Saving project and scene data...' 
-                    : 'Save project metadata and scene data to cloud'
+                : saveStatus === 'saving' 
+                  ? 'Saving project and scene data...' 
+                  : 'Save project metadata and scene data'
           }
         >
           {getSaveButtonContent()}

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import * as THREE from 'three';
+import { FirestoreObject, FirestoreGroup, FirestoreLight, FirestoreScene } from '../services/firestoreService';
 
 type EditMode = 'vertex' | 'edge' | null;
 type CameraPerspective = 'perspective' | 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom';
@@ -158,8 +159,14 @@ interface SceneState {
   markUnsavedChanges: () => void;
   setCameraTarget: (target: THREE.Vector3) => void;
   
-  // New reset function for project switching
+  // New functions for project integration
   resetScene: () => void;
+  loadSceneFromProject: (sceneData: {
+    objects: FirestoreObject[];
+    groups: FirestoreGroup[];
+    lights: FirestoreLight[];
+    settings: FirestoreScene;
+  }) => void;
 }
 
 const initialState = {
@@ -245,11 +252,119 @@ const createLight = (type: 'directional' | 'point' | 'spot', position: number[],
   return light;
 };
 
+// Helper function to convert Firestore data back to THREE.js object
+const firestoreToObject = (data: FirestoreObject): THREE.Object3D | null => {
+  let object: THREE.Object3D | null = null;
+
+  // Create geometry based on type and parameters
+  if (data.type === 'Mesh' && data.geometryParams) {
+    let geometry: THREE.BufferGeometry;
+    
+    if (data.geometryParams.width !== undefined) {
+      // Box geometry
+      geometry = new THREE.BoxGeometry(
+        data.geometryParams.width,
+        data.geometryParams.height,
+        data.geometryParams.depth
+      );
+    } else if (data.geometryParams.radius !== undefined && data.geometryParams.widthSegments !== undefined) {
+      // Sphere geometry
+      geometry = new THREE.SphereGeometry(
+        data.geometryParams.radius,
+        data.geometryParams.widthSegments,
+        data.geometryParams.heightSegments
+      );
+    } else if (data.geometryParams.radiusTop !== undefined) {
+      // Cylinder geometry
+      geometry = new THREE.CylinderGeometry(
+        data.geometryParams.radiusTop,
+        data.geometryParams.radiusBottom,
+        data.geometryParams.height,
+        data.geometryParams.radialSegments
+      );
+    } else if (data.geometryParams.radius !== undefined && data.geometryParams.radialSegments !== undefined) {
+      // Cone geometry
+      geometry = new THREE.ConeGeometry(
+        data.geometryParams.radius,
+        data.geometryParams.height,
+        data.geometryParams.radialSegments
+      );
+    } else {
+      // Default to box
+      geometry = new THREE.BoxGeometry(1, 1, 1);
+    }
+
+    // Create material
+    const material = new THREE.MeshStandardMaterial({
+      color: data.color,
+      transparent: data.opacity < 1,
+      opacity: data.opacity,
+      ...data.materialParams
+    });
+
+    object = new THREE.Mesh(geometry, material);
+  }
+
+  if (object) {
+    // Set transform properties
+    object.position.set(data.position.x, data.position.y, data.position.z);
+    object.rotation.set(data.rotation.x, data.rotation.y, data.rotation.z);
+    object.scale.set(data.scale.x, data.scale.y, data.scale.z);
+    object.visible = data.visible;
+  }
+
+  return object;
+};
+
 export const useSceneStore = create<SceneState>((set, get) => ({
   ...initialState,
 
   // Reset function to clear all scene data when switching projects
   resetScene: () => set(initialState),
+
+  // Load scene data from project document
+  loadSceneFromProject: (sceneData) => {
+    // Convert Firestore objects to THREE.js objects
+    const threeObjects = sceneData.objects.map(firestoreObj => {
+      const threeObject = firestoreToObject(firestoreObj);
+      if (threeObject && firestoreObj.id) {
+        return {
+          id: firestoreObj.id,
+          object: threeObject,
+          name: firestoreObj.name,
+          visible: firestoreObj.visible,
+          locked: firestoreObj.locked,
+          groupId: firestoreObj.groupId
+        };
+      }
+      return null;
+    }).filter(Boolean) as Array<{
+      id: string;
+      object: THREE.Object3D;
+      name: string;
+      visible: boolean;
+      locked: boolean;
+      groupId?: string;
+    }>;
+
+    // Convert Firestore lights to scene lights
+    const sceneLights = sceneData.lights.map(firestoreLight => ({
+      ...firestoreLight,
+      object: createLight(firestoreLight.type, firestoreLight.position, firestoreLight.target)
+    }));
+
+    set({
+      objects: threeObjects,
+      groups: sceneData.groups,
+      lights: sceneLights,
+      sceneSettings: {
+        ...get().sceneSettings,
+        ...sceneData.settings
+      },
+      cameraPerspective: (sceneData.settings.cameraPerspective as CameraPerspective) || 'perspective',
+      cameraZoom: sceneData.settings.cameraZoom || 1
+    });
+  },
 
   updateSceneSettings: (settings) =>
     set((state) => {

@@ -25,35 +25,15 @@ import {
   LogOut,
   ChevronDown
 } from 'lucide-react';
-import { 
-  collection, 
-  addDoc, 
-  getDocs, 
-  deleteDoc, 
-  doc, 
-  updateDoc, 
-  query, 
-  where,
-  serverTimestamp,
-  Timestamp 
-} from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
-import { db, auth } from '../config/firebase';
-
-interface Project {
-  id: string;
-  name: string;
-  description: string;
-  thumbnail?: string;
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
-  userId: string;
-  isStarred: boolean;
-  objectCount: number;
-  lastOpened?: Timestamp;
-  tags: string[];
-  color: string;
-}
+import { auth } from '../config/firebase';
+import { 
+  createProject,
+  updateProjectMetadata,
+  deleteProject,
+  ProjectDocument
+} from '../services/firestoreService';
+import { useUserProjects } from '../hooks/useFirestore';
 
 interface ClassroomPageProps {
   user: any;
@@ -62,14 +42,13 @@ interface ClassroomPageProps {
 }
 
 const ClassroomPage: React.FC<ClassroomPageProps> = ({ user, onProjectSelect, onSignOut }) => {
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { projects, loading, error } = useUserProjects(user?.uid);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterBy, setFilterBy] = useState<'all' | 'starred' | 'recent'>('all');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [selectedProject, setSelectedProject] = useState<ProjectDocument | null>(null);
   const [showProjectMenu, setShowProjectMenu] = useState<string | null>(null);
 
   // Create project form state
@@ -112,135 +91,79 @@ const ClassroomPage: React.FC<ClassroomPageProps> = ({ user, onProjectSelect, on
     }
   ];
 
-  useEffect(() => {
-    loadProjects();
-  }, [user]);
-
-  const loadProjects = async () => {
-    if (!user) return;
-
-    try {
-      // Use only the where clause to avoid composite index requirement
-      const q = query(
-        collection(db, 'projects'),
-        where('userId', '==', user.uid)
-      );
-      
-      const querySnapshot = await getDocs(q);
-      const projectsData = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as Project));
-
-      // Sort by updatedAt in JavaScript instead of Firestore
-      const sortedProjects = projectsData.sort((a, b) => {
-        const aTime = a.updatedAt?.toMillis() || 0;
-        const bTime = b.updatedAt?.toMillis() || 0;
-        return bTime - aTime; // Descending order (newest first)
-      });
-
-      setProjects(sortedProjects);
-    } catch (error) {
-      console.error('Error loading projects:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const createProject = async (template: string = 'blank') => {
+  const handleCreateProject = async (template: string = 'blank') => {
     if (!user || !newProject.name.trim()) return;
 
     try {
-      const projectData = {
-        name: newProject.name.trim(),
-        description: newProject.description.trim(),
-        userId: user.uid,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        isStarred: false,
-        objectCount: 0,
-        tags: [template],
-        color: newProject.color,
+      const projectId = await createProject(
+        user.uid,
+        newProject.name.trim(),
+        newProject.description.trim(),
+        newProject.color,
         template
-      };
-
-      const docRef = await addDoc(collection(db, 'projects'), projectData);
+      );
       
       // Reset form
       setNewProject({ name: '', description: '', color: '#3b82f6' });
       setShowCreateModal(false);
       
-      // Reload projects
-      await loadProjects();
-      
       // Open the new project
-      onProjectSelect(docRef.id, projectData.name);
+      onProjectSelect(projectId, newProject.name.trim());
     } catch (error) {
       console.error('Error creating project:', error);
     }
   };
 
-  const deleteProject = async (projectId: string) => {
+  const handleDeleteProject = async (projectId: string) => {
     if (!confirm('Are you sure you want to delete this project? This action cannot be undone.')) {
       return;
     }
 
     try {
-      await deleteDoc(doc(db, 'projects', projectId));
-      await loadProjects();
+      await deleteProject(projectId);
       setShowProjectMenu(null);
     } catch (error) {
       console.error('Error deleting project:', error);
     }
   };
 
-  const toggleStarProject = async (projectId: string, currentStarred: boolean) => {
+  const handleToggleStarProject = async (projectId: string, currentStarred: boolean) => {
     try {
-      await updateDoc(doc(db, 'projects', projectId), {
-        isStarred: !currentStarred,
-        updatedAt: serverTimestamp()
+      await updateProjectMetadata(projectId, {
+        isStarred: !currentStarred
       });
-      await loadProjects();
     } catch (error) {
       console.error('Error updating project:', error);
     }
   };
 
-  const duplicateProject = async (project: Project) => {
+  const handleDuplicateProject = async (project: ProjectDocument) => {
     try {
-      const duplicatedProject = {
-        name: `${project.name} (Copy)`,
-        description: project.description,
-        userId: user.uid,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        isStarred: false,
-        objectCount: 0,
-        tags: project.tags,
-        color: project.color,
-        template: 'blank'
-      };
-
-      await addDoc(collection(db, 'projects'), duplicatedProject);
-      await loadProjects();
+      await createProject(
+        user.uid,
+        `${project.name} (Copy)`,
+        project.description,
+        project.color,
+        'blank'
+      );
       setShowProjectMenu(null);
     } catch (error) {
       console.error('Error duplicating project:', error);
     }
   };
 
-  const openProject = async (project: Project) => {
+  const handleOpenProject = async (project: ProjectDocument) => {
     try {
       // Update last opened timestamp
-      await updateDoc(doc(db, 'projects', project.id), {
-        lastOpened: serverTimestamp()
+      await updateProjectMetadata(project.id!, {
+        lastOpened: new Date() as any
       });
       
-      onProjectSelect(project.id, project.name);
+      onProjectSelect(project.id!, project.name);
     } catch (error) {
       console.error('Error opening project:', error);
       // Still open the project even if timestamp update fails
-      onProjectSelect(project.id, project.name);
+      onProjectSelect(project.id!, project.name);
     }
   };
 
@@ -264,19 +187,20 @@ const ClassroomPage: React.FC<ClassroomPageProps> = ({ user, onProjectSelect, on
     return matchesSearch && matchesFilter;
   });
 
-  const formatDate = (timestamp: Timestamp) => {
+  const formatDate = (timestamp: any) => {
     if (!timestamp) return 'Never';
-    return timestamp.toDate().toLocaleDateString('en-US', {
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    return date.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
       year: 'numeric'
     });
   };
 
-  const formatTimeAgo = (timestamp: Timestamp) => {
+  const formatTimeAgo = (timestamp: any) => {
     if (!timestamp) return 'Never';
     const now = new Date();
-    const date = timestamp.toDate();
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
     const diffInHours = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60));
     
     if (diffInHours < 1) return 'Just now';
@@ -291,6 +215,22 @@ const ClassroomPage: React.FC<ClassroomPageProps> = ({ user, onProjectSelect, on
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-white/70 text-lg">Loading your classroom...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-red-400 mb-4">Error: {error}</div>
+          <button
+            onClick={() => window.location.reload()}
+            className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-xl font-medium transition-colors"
+          >
+            Retry
+          </button>
         </div>
       </div>
     );
@@ -489,7 +429,7 @@ const ClassroomPage: React.FC<ClassroomPageProps> = ({ user, onProjectSelect, on
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            toggleStarProject(project.id, project.isStarred);
+                            handleToggleStarProject(project.id!, project.isStarred);
                           }}
                           className="p-1 hover:bg-white/20 rounded-lg transition-colors"
                         >
@@ -504,7 +444,7 @@ const ClassroomPage: React.FC<ClassroomPageProps> = ({ user, onProjectSelect, on
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              setShowProjectMenu(showProjectMenu === project.id ? null : project.id);
+                              setShowProjectMenu(showProjectMenu === project.id ? null : project.id!);
                             }}
                             className="p-1 hover:bg-white/20 rounded-lg transition-colors"
                           >
@@ -526,14 +466,14 @@ const ClassroomPage: React.FC<ClassroomPageProps> = ({ user, onProjectSelect, on
                                   Edit
                                 </button>
                                 <button
-                                  onClick={() => duplicateProject(project)}
+                                  onClick={() => handleDuplicateProject(project)}
                                   className="w-full flex items-center gap-3 p-3 text-left hover:bg-white/10 text-white/90"
                                 >
                                   <Copy className="w-4 h-4" />
                                   Duplicate
                                 </button>
                                 <button
-                                  onClick={() => deleteProject(project.id)}
+                                  onClick={() => handleDeleteProject(project.id!)}
                                   className="w-full flex items-center gap-3 p-3 text-left hover:bg-white/10 text-red-400"
                                 >
                                   <Trash2 className="w-4 h-4" />
@@ -550,7 +490,7 @@ const ClassroomPage: React.FC<ClassroomPageProps> = ({ user, onProjectSelect, on
                     <div className="flex items-center gap-4 text-sm text-white/60 mb-4">
                       <div className="flex items-center gap-1">
                         <Box className="w-4 h-4" />
-                        <span>{project.objectCount} objects</span>
+                        <span>{project.sceneData?.objects?.length || 0} objects</span>
                       </div>
                       <div className="flex items-center gap-1">
                         <Clock className="w-4 h-4" />
@@ -559,7 +499,7 @@ const ClassroomPage: React.FC<ClassroomPageProps> = ({ user, onProjectSelect, on
                     </div>
 
                     {/* Project Tags */}
-                    {project.tags.length > 0 && (
+                    {project.tags && project.tags.length > 0 && (
                       <div className="flex flex-wrap gap-1 mb-4">
                         {project.tags.slice(0, 2).map((tag, index) => (
                           <span
@@ -579,7 +519,7 @@ const ClassroomPage: React.FC<ClassroomPageProps> = ({ user, onProjectSelect, on
 
                     {/* Open Button */}
                     <button
-                      onClick={() => openProject(project)}
+                      onClick={() => handleOpenProject(project)}
                       className="w-full bg-gradient-to-r from-blue-500/20 to-purple-600/20 hover:from-blue-500/30 hover:to-purple-600/30 border border-blue-500/30 text-white py-3 rounded-xl font-medium transition-all duration-200 flex items-center justify-center gap-2"
                     >
                       <Eye className="w-4 h-4" />
@@ -611,7 +551,7 @@ const ClassroomPage: React.FC<ClassroomPageProps> = ({ user, onProjectSelect, on
                     <div className="flex items-center gap-6 text-sm text-white/60">
                       <div className="flex items-center gap-1">
                         <Box className="w-4 h-4" />
-                        <span>{project.objectCount}</span>
+                        <span>{project.sceneData?.objects?.length || 0}</span>
                       </div>
                       <div className="flex items-center gap-1">
                         <Calendar className="w-4 h-4" />
@@ -620,7 +560,7 @@ const ClassroomPage: React.FC<ClassroomPageProps> = ({ user, onProjectSelect, on
                     </div>
 
                     <button
-                      onClick={() => openProject(project)}
+                      onClick={() => handleOpenProject(project)}
                       className="ml-4 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white px-4 py-2 rounded-lg font-medium transition-all duration-200"
                     >
                       Open
@@ -740,7 +680,7 @@ const ClassroomPage: React.FC<ClassroomPageProps> = ({ user, onProjectSelect, on
                 Cancel
               </button>
               <button
-                onClick={() => createProject()}
+                onClick={() => handleCreateProject()}
                 disabled={!newProject.name.trim()}
                 className="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:from-gray-600 disabled:to-gray-600 disabled:cursor-not-allowed text-white rounded-xl font-medium transition-all duration-200"
               >

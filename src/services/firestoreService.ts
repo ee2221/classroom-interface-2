@@ -11,16 +11,15 @@ import {
   where,
   serverTimestamp,
   onSnapshot,
-  Timestamp
+  Timestamp,
+  setDoc
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import * as THREE from 'three';
 
-// Types for Firestore data
+// Types for Firestore data - now stored within a single project document
 export interface FirestoreObject {
   id?: string;
-  userId?: string;
-  projectId?: string; // Add projectId field
   name: string;
   type: string;
   position: { x: number; y: number; z: number };
@@ -39,8 +38,6 @@ export interface FirestoreObject {
 
 export interface FirestoreGroup {
   id?: string;
-  userId?: string;
-  projectId?: string; // Add projectId field
   name: string;
   expanded: boolean;
   visible: boolean;
@@ -52,8 +49,6 @@ export interface FirestoreGroup {
 
 export interface FirestoreLight {
   id?: string;
-  userId?: string;
-  projectId?: string; // Add projectId field
   name: string;
   type: 'directional' | 'point' | 'spot';
   position: number[];
@@ -71,26 +66,42 @@ export interface FirestoreLight {
 }
 
 export interface FirestoreScene {
-  id?: string;
-  userId?: string;
-  projectId?: string; // Add projectId field
-  name: string;
-  description?: string;
   backgroundColor: string;
   showGrid: boolean;
   gridSize: number;
   gridDivisions: number;
   cameraPerspective: string;
   cameraZoom: number;
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  showLightHelpers: boolean;
+  hideAllMenus: boolean;
 }
 
-// Collection names - now project-specific
-const getCollectionName = (projectId: string, type: string) => `project_${projectId}_${type}`;
+// Complete project document structure
+export interface ProjectDocument {
+  id?: string;
+  userId: string;
+  name: string;
+  description: string;
+  thumbnail?: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  lastOpened?: Timestamp;
+  isStarred: boolean;
+  color: string;
+  tags: string[];
+  template?: string;
+  
+  // Scene data stored directly in the project document
+  sceneData: {
+    objects: FirestoreObject[];
+    groups: FirestoreGroup[];
+    lights: FirestoreLight[];
+    settings: FirestoreScene;
+  };
+}
 
 // Helper function to convert THREE.js object to Firestore format
-export const objectToFirestore = (object: THREE.Object3D, name: string, id?: string, userId?: string, projectId?: string): FirestoreObject => {
+export const objectToFirestore = (object: THREE.Object3D, name: string, id?: string): FirestoreObject => {
   const firestoreObj: FirestoreObject = {
     name,
     type: object.type,
@@ -115,14 +126,6 @@ export const objectToFirestore = (object: THREE.Object3D, name: string, id?: str
     locked: false,
     updatedAt: serverTimestamp()
   };
-
-  // Add userId and projectId if provided
-  if (userId) {
-    firestoreObj.userId = userId;
-  }
-  if (projectId) {
-    firestoreObj.projectId = projectId;
-  }
 
   if (id) {
     firestoreObj.id = id;
@@ -240,350 +243,478 @@ export const firestoreToObject = (data: FirestoreObject): THREE.Object3D | null 
   return object;
 };
 
-// Object CRUD operations with project scoping
-export const saveObject = async (objectData: FirestoreObject, userId: string, projectId: string): Promise<string> => {
+// Create a new project document with initial scene data
+export const createProject = async (
+  userId: string,
+  name: string,
+  description: string = '',
+  color: string = '#3b82f6',
+  template: string = 'blank'
+): Promise<string> => {
   try {
-    const dataWithIds = { ...objectData, userId, projectId };
-    const collectionName = getCollectionName(projectId, 'objects');
-    const docRef = await addDoc(collection(db, collectionName), dataWithIds);
+    const initialSceneData = {
+      objects: [],
+      groups: [],
+      lights: [],
+      settings: {
+        backgroundColor: '#0f0f23',
+        showGrid: true,
+        gridSize: 10,
+        gridDivisions: 10,
+        cameraPerspective: 'perspective',
+        cameraZoom: 1,
+        showLightHelpers: true,
+        hideAllMenus: false
+      }
+    };
+
+    const projectData: Omit<ProjectDocument, 'id'> = {
+      userId,
+      name: name.trim(),
+      description: description.trim(),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      isStarred: false,
+      color,
+      tags: [template],
+      template,
+      sceneData: initialSceneData
+    };
+
+    const docRef = await addDoc(collection(db, 'projects'), projectData);
     return docRef.id;
   } catch (error) {
-    console.error('Error saving object:', error);
+    console.error('Error creating project:', error);
     throw error;
   }
 };
 
-export const updateObject = async (id: string, objectData: Partial<FirestoreObject>, userId: string, projectId: string): Promise<void> => {
+// Get a single project document
+export const getProject = async (projectId: string): Promise<ProjectDocument | null> => {
   try {
-    const collectionName = getCollectionName(projectId, 'objects');
-    const objectRef = doc(db, collectionName, id);
-    await updateDoc(objectRef, {
-      ...objectData,
-      userId,
-      projectId,
-      updatedAt: serverTimestamp()
-    });
-  } catch (error) {
-    console.error('Error updating object:', error);
-    throw error;
-  }
-};
-
-export const deleteObject = async (id: string, projectId: string): Promise<void> => {
-  try {
-    const collectionName = getCollectionName(projectId, 'objects');
-    await deleteDoc(doc(db, collectionName, id));
-  } catch (error) {
-    console.error('Error deleting object:', error);
-    throw error;
-  }
-};
-
-export const getObjects = async (userId: string, projectId: string): Promise<FirestoreObject[]> => {
-  try {
-    const collectionName = getCollectionName(projectId, 'objects');
-    const q = query(
-      collection(db, collectionName), 
-      where('userId', '==', userId),
-      where('projectId', '==', projectId),
-      orderBy('createdAt', 'desc')
-    );
-    const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    } as FirestoreObject));
-  } catch (error) {
-    console.error('Error getting objects:', error);
-    throw error;
-  }
-};
-
-export const getObject = async (id: string, projectId: string): Promise<FirestoreObject | null> => {
-  try {
-    const collectionName = getCollectionName(projectId, 'objects');
-    const docRef = doc(db, collectionName, id);
+    const docRef = doc(db, 'projects', projectId);
     const docSnap = await getDoc(docRef);
     
     if (docSnap.exists()) {
       return {
         id: docSnap.id,
         ...docSnap.data()
-      } as FirestoreObject;
+      } as ProjectDocument;
     } else {
       return null;
     }
   } catch (error) {
-    console.error('Error getting object:', error);
+    console.error('Error getting project:', error);
     throw error;
   }
 };
 
-// Group CRUD operations with project scoping
-export const saveGroup = async (groupData: FirestoreGroup, userId: string, projectId: string): Promise<string> => {
+// Update project metadata (name, description, etc.)
+export const updateProjectMetadata = async (
+  projectId: string,
+  updates: Partial<Omit<ProjectDocument, 'id' | 'userId' | 'sceneData' | 'createdAt'>>
+): Promise<void> => {
   try {
-    const dataWithIds = { ...groupData, userId, projectId };
-    const collectionName = getCollectionName(projectId, 'groups');
-    const docRef = await addDoc(collection(db, collectionName), dataWithIds);
-    return docRef.id;
+    const projectRef = doc(db, 'projects', projectId);
+    await updateDoc(projectRef, {
+      ...updates,
+      updatedAt: serverTimestamp()
+    });
   } catch (error) {
-    console.error('Error saving group:', error);
+    console.error('Error updating project metadata:', error);
     throw error;
   }
 };
 
-export const updateGroup = async (id: string, groupData: Partial<FirestoreGroup>, userId: string, projectId: string): Promise<void> => {
+// Save complete scene data to project document
+export const saveSceneToProject = async (
+  projectId: string,
+  sceneData: {
+    objects: FirestoreObject[];
+    groups: FirestoreGroup[];
+    lights: FirestoreLight[];
+    settings: FirestoreScene;
+  }
+): Promise<void> => {
   try {
-    const collectionName = getCollectionName(projectId, 'groups');
-    const groupRef = doc(db, collectionName, id);
-    await updateDoc(groupRef, {
+    const projectRef = doc(db, 'projects', projectId);
+    await updateDoc(projectRef, {
+      sceneData,
+      updatedAt: serverTimestamp(),
+      lastOpened: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('Error saving scene to project:', error);
+    throw error;
+  }
+};
+
+// Add object to project's scene data
+export const addObjectToProject = async (
+  projectId: string,
+  objectData: FirestoreObject
+): Promise<void> => {
+  try {
+    const project = await getProject(projectId);
+    if (!project) throw new Error('Project not found');
+
+    const newObject = {
+      ...objectData,
+      id: crypto.randomUUID(),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    };
+
+    const updatedObjects = [...project.sceneData.objects, newObject];
+    
+    await updateDoc(doc(db, 'projects', projectId), {
+      'sceneData.objects': updatedObjects,
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('Error adding object to project:', error);
+    throw error;
+  }
+};
+
+// Update object in project's scene data
+export const updateObjectInProject = async (
+  projectId: string,
+  objectId: string,
+  objectData: Partial<FirestoreObject>
+): Promise<void> => {
+  try {
+    const project = await getProject(projectId);
+    if (!project) throw new Error('Project not found');
+
+    const updatedObjects = project.sceneData.objects.map(obj =>
+      obj.id === objectId 
+        ? { ...obj, ...objectData, updatedAt: serverTimestamp() }
+        : obj
+    );
+    
+    await updateDoc(doc(db, 'projects', projectId), {
+      'sceneData.objects': updatedObjects,
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('Error updating object in project:', error);
+    throw error;
+  }
+};
+
+// Remove object from project's scene data
+export const removeObjectFromProject = async (
+  projectId: string,
+  objectId: string
+): Promise<void> => {
+  try {
+    const project = await getProject(projectId);
+    if (!project) throw new Error('Project not found');
+
+    const updatedObjects = project.sceneData.objects.filter(obj => obj.id !== objectId);
+    
+    // Also remove from any groups
+    const updatedGroups = project.sceneData.groups.map(group => ({
+      ...group,
+      objectIds: group.objectIds.filter(id => id !== objectId)
+    }));
+    
+    await updateDoc(doc(db, 'projects', projectId), {
+      'sceneData.objects': updatedObjects,
+      'sceneData.groups': updatedGroups,
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('Error removing object from project:', error);
+    throw error;
+  }
+};
+
+// Add group to project's scene data
+export const addGroupToProject = async (
+  projectId: string,
+  groupData: FirestoreGroup
+): Promise<void> => {
+  try {
+    const project = await getProject(projectId);
+    if (!project) throw new Error('Project not found');
+
+    const newGroup = {
       ...groupData,
-      userId,
-      projectId,
+      id: crypto.randomUUID(),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    };
+
+    const updatedGroups = [...project.sceneData.groups, newGroup];
+    
+    await updateDoc(doc(db, 'projects', projectId), {
+      'sceneData.groups': updatedGroups,
       updatedAt: serverTimestamp()
     });
   } catch (error) {
-    console.error('Error updating group:', error);
+    console.error('Error adding group to project:', error);
     throw error;
   }
 };
 
-export const deleteGroup = async (id: string, projectId: string): Promise<void> => {
+// Update group in project's scene data
+export const updateGroupInProject = async (
+  projectId: string,
+  groupId: string,
+  groupData: Partial<FirestoreGroup>
+): Promise<void> => {
   try {
-    const collectionName = getCollectionName(projectId, 'groups');
-    await deleteDoc(doc(db, collectionName, id));
-  } catch (error) {
-    console.error('Error deleting group:', error);
-    throw error;
-  }
-};
+    const project = await getProject(projectId);
+    if (!project) throw new Error('Project not found');
 
-export const getGroups = async (userId: string, projectId: string): Promise<FirestoreGroup[]> => {
-  try {
-    const collectionName = getCollectionName(projectId, 'groups');
-    const q = query(
-      collection(db, collectionName), 
-      where('userId', '==', userId),
-      where('projectId', '==', projectId),
-      orderBy('createdAt', 'desc')
+    const updatedGroups = project.sceneData.groups.map(group =>
+      group.id === groupId 
+        ? { ...group, ...groupData, updatedAt: serverTimestamp() }
+        : group
     );
-    const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    } as FirestoreGroup));
+    
+    await updateDoc(doc(db, 'projects', projectId), {
+      'sceneData.groups': updatedGroups,
+      updatedAt: serverTimestamp()
+    });
   } catch (error) {
-    console.error('Error getting groups:', error);
+    console.error('Error updating group in project:', error);
     throw error;
   }
 };
 
-// Light CRUD operations with project scoping
-export const saveLight = async (lightData: FirestoreLight, userId: string, projectId: string): Promise<string> => {
+// Remove group from project's scene data
+export const removeGroupFromProject = async (
+  projectId: string,
+  groupId: string
+): Promise<void> => {
   try {
-    const dataWithIds = { ...lightData, userId, projectId };
-    const collectionName = getCollectionName(projectId, 'lights');
-    const docRef = await addDoc(collection(db, collectionName), dataWithIds);
-    return docRef.id;
+    const project = await getProject(projectId);
+    if (!project) throw new Error('Project not found');
+
+    const updatedGroups = project.sceneData.groups.filter(group => group.id !== groupId);
+    
+    // Remove groupId from objects that were in this group
+    const updatedObjects = project.sceneData.objects.map(obj =>
+      obj.groupId === groupId ? { ...obj, groupId: undefined } : obj
+    );
+    
+    await updateDoc(doc(db, 'projects', projectId), {
+      'sceneData.groups': updatedGroups,
+      'sceneData.objects': updatedObjects,
+      updatedAt: serverTimestamp()
+    });
   } catch (error) {
-    console.error('Error saving light:', error);
+    console.error('Error removing group from project:', error);
     throw error;
   }
 };
 
-export const updateLight = async (id: string, lightData: Partial<FirestoreLight>, userId: string, projectId: string): Promise<void> => {
+// Add light to project's scene data
+export const addLightToProject = async (
+  projectId: string,
+  lightData: FirestoreLight
+): Promise<void> => {
   try {
-    const collectionName = getCollectionName(projectId, 'lights');
-    const lightRef = doc(db, collectionName, id);
-    await updateDoc(lightRef, {
+    const project = await getProject(projectId);
+    if (!project) throw new Error('Project not found');
+
+    const newLight = {
       ...lightData,
-      userId,
-      projectId,
+      id: crypto.randomUUID(),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    };
+
+    const updatedLights = [...project.sceneData.lights, newLight];
+    
+    await updateDoc(doc(db, 'projects', projectId), {
+      'sceneData.lights': updatedLights,
       updatedAt: serverTimestamp()
     });
   } catch (error) {
-    console.error('Error updating light:', error);
+    console.error('Error adding light to project:', error);
     throw error;
   }
 };
 
-export const deleteLight = async (id: string, projectId: string): Promise<void> => {
+// Update light in project's scene data
+export const updateLightInProject = async (
+  projectId: string,
+  lightId: string,
+  lightData: Partial<FirestoreLight>
+): Promise<void> => {
   try {
-    const collectionName = getCollectionName(projectId, 'lights');
-    await deleteDoc(doc(db, collectionName, id));
-  } catch (error) {
-    console.error('Error deleting light:', error);
-    throw error;
-  }
-};
+    const project = await getProject(projectId);
+    if (!project) throw new Error('Project not found');
 
-export const getLights = async (userId: string, projectId: string): Promise<FirestoreLight[]> => {
-  try {
-    const collectionName = getCollectionName(projectId, 'lights');
-    const q = query(
-      collection(db, collectionName), 
-      where('userId', '==', userId),
-      where('projectId', '==', projectId),
-      orderBy('createdAt', 'desc')
+    const updatedLights = project.sceneData.lights.map(light =>
+      light.id === lightId 
+        ? { ...light, ...lightData, updatedAt: serverTimestamp() }
+        : light
     );
+    
+    await updateDoc(doc(db, 'projects', projectId), {
+      'sceneData.lights': updatedLights,
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('Error updating light in project:', error);
+    throw error;
+  }
+};
+
+// Remove light from project's scene data
+export const removeLightFromProject = async (
+  projectId: string,
+  lightId: string
+): Promise<void> => {
+  try {
+    const project = await getProject(projectId);
+    if (!project) throw new Error('Project not found');
+
+    const updatedLights = project.sceneData.lights.filter(light => light.id !== lightId);
+    
+    await updateDoc(doc(db, 'projects', projectId), {
+      'sceneData.lights': updatedLights,
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('Error removing light from project:', error);
+    throw error;
+  }
+};
+
+// Update scene settings in project
+export const updateSceneSettingsInProject = async (
+  projectId: string,
+  settings: Partial<FirestoreScene>
+): Promise<void> => {
+  try {
+    const project = await getProject(projectId);
+    if (!project) throw new Error('Project not found');
+
+    const updatedSettings = {
+      ...project.sceneData.settings,
+      ...settings
+    };
+    
+    await updateDoc(doc(db, 'projects', projectId), {
+      'sceneData.settings': updatedSettings,
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('Error updating scene settings in project:', error);
+    throw error;
+  }
+};
+
+// Get all projects for a user
+export const getUserProjects = async (userId: string): Promise<ProjectDocument[]> => {
+  try {
+    const q = query(
+      collection(db, 'projects'),
+      where('userId', '==', userId),
+      orderBy('updatedAt', 'desc')
+    );
+    
     const querySnapshot = await getDocs(q);
     return querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
-    } as FirestoreLight));
+    } as ProjectDocument));
   } catch (error) {
-    console.error('Error getting lights:', error);
+    console.error('Error getting user projects:', error);
     throw error;
   }
 };
 
-// Scene CRUD operations with project scoping
-export const saveScene = async (sceneData: FirestoreScene, userId: string, projectId: string): Promise<string> => {
+// Delete a project completely
+export const deleteProject = async (projectId: string): Promise<void> => {
   try {
-    const dataWithIds = { ...sceneData, userId, projectId };
-    const collectionName = getCollectionName(projectId, 'scenes');
-    const docRef = await addDoc(collection(db, collectionName), dataWithIds);
-    return docRef.id;
+    await deleteDoc(doc(db, 'projects', projectId));
   } catch (error) {
-    console.error('Error saving scene:', error);
+    console.error('Error deleting project:', error);
     throw error;
   }
 };
 
-export const updateScene = async (id: string, sceneData: Partial<FirestoreScene>, userId: string, projectId: string): Promise<void> => {
-  try {
-    const collectionName = getCollectionName(projectId, 'scenes');
-    const sceneRef = doc(db, collectionName, id);
-    await updateDoc(sceneRef, {
-      ...sceneData,
-      userId,
-      projectId,
-      updatedAt: serverTimestamp()
-    });
-  } catch (error) {
-    console.error('Error updating scene:', error);
-    throw error;
-  }
-};
-
-export const getScenes = async (userId: string, projectId: string): Promise<FirestoreScene[]> => {
-  try {
-    const collectionName = getCollectionName(projectId, 'scenes');
-    const q = query(
-      collection(db, collectionName), 
-      where('userId', '==', userId),
-      where('projectId', '==', projectId),
-      orderBy('createdAt', 'desc')
-    );
-    const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    } as FirestoreScene));
-  } catch (error) {
-    console.error('Error getting scenes:', error);
-    throw error;
-  }
-};
-
-// Real-time listeners with project scoping
-export const subscribeToObjects = (userId: string, projectId: string, callback: (objects: FirestoreObject[]) => void) => {
-  const collectionName = getCollectionName(projectId, 'objects');
-  const q = query(
-    collection(db, collectionName), 
-    where('userId', '==', userId),
-    where('projectId', '==', projectId),
-    orderBy('createdAt', 'desc')
-  );
-  return onSnapshot(q, (querySnapshot) => {
-    const objects = querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    } as FirestoreObject));
-    callback(objects);
+// Real-time listener for a single project
+export const subscribeToProject = (
+  projectId: string, 
+  callback: (project: ProjectDocument | null) => void
+) => {
+  const projectRef = doc(db, 'projects', projectId);
+  
+  return onSnapshot(projectRef, (docSnap) => {
+    if (docSnap.exists()) {
+      const project = {
+        id: docSnap.id,
+        ...docSnap.data()
+      } as ProjectDocument;
+      callback(project);
+    } else {
+      callback(null);
+    }
+  }, (error) => {
+    console.error('Error in project subscription:', error);
+    callback(null);
   });
 };
 
-export const subscribeToGroups = (userId: string, projectId: string, callback: (groups: FirestoreGroup[]) => void) => {
-  const collectionName = getCollectionName(projectId, 'groups');
+// Real-time listener for user's projects list
+export const subscribeToUserProjects = (
+  userId: string,
+  callback: (projects: ProjectDocument[]) => void
+) => {
   const q = query(
-    collection(db, collectionName), 
+    collection(db, 'projects'),
     where('userId', '==', userId),
-    where('projectId', '==', projectId),
-    orderBy('createdAt', 'desc')
+    orderBy('updatedAt', 'desc')
   );
+  
   return onSnapshot(q, (querySnapshot) => {
-    const groups = querySnapshot.docs.map(doc => ({
+    const projects = querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
-    } as FirestoreGroup));
-    callback(groups);
+    } as ProjectDocument));
+    callback(projects);
+  }, (error) => {
+    console.error('Error in user projects subscription:', error);
+    callback([]);
   });
 };
 
-export const subscribeToLights = (userId: string, projectId: string, callback: (lights: FirestoreLight[]) => void) => {
-  const collectionName = getCollectionName(projectId, 'lights');
-  const q = query(
-    collection(db, collectionName), 
-    where('userId', '==', userId),
-    where('projectId', '==', projectId),
-    orderBy('createdAt', 'desc')
-  );
-  return onSnapshot(q, (querySnapshot) => {
-    const lights = querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    } as FirestoreLight));
-    callback(lights);
-  });
+// Legacy compatibility functions (deprecated - use project-specific functions instead)
+export const saveObject = async (objectData: FirestoreObject, userId: string, projectId: string): Promise<string> => {
+  console.warn('saveObject is deprecated. Use addObjectToProject instead.');
+  await addObjectToProject(projectId, objectData);
+  return objectData.id || '';
 };
 
-// Batch operations for better performance
-export const saveObjectsBatch = async (objects: FirestoreObject[], userId: string, projectId: string): Promise<void> => {
-  try {
-    const batch = [];
-    for (const obj of objects) {
-      batch.push(saveObject(obj, userId, projectId));
-    }
-    await Promise.all(batch);
-  } catch (error) {
-    console.error('Error saving objects batch:', error);
-    throw error;
-  }
+export const saveGroup = async (groupData: FirestoreGroup, userId: string, projectId: string): Promise<string> => {
+  console.warn('saveGroup is deprecated. Use addGroupToProject instead.');
+  await addGroupToProject(projectId, groupData);
+  return groupData.id || '';
 };
 
-export const deleteObjectsBatch = async (ids: string[], projectId: string): Promise<void> => {
-  try {
-    const batch = [];
-    for (const id of ids) {
-      batch.push(deleteObject(id, projectId));
-    }
-    await Promise.all(batch);
-  } catch (error) {
-    console.error('Error deleting objects batch:', error);
-    throw error;
-  }
+export const saveLight = async (lightData: FirestoreLight, userId: string, projectId: string): Promise<string> => {
+  console.warn('saveLight is deprecated. Use addLightToProject instead.');
+  await addLightToProject(projectId, lightData);
+  return lightData.id || '';
 };
 
-// Project cleanup function - deletes all project data
-export const deleteProjectData = async (projectId: string): Promise<void> => {
-  try {
-    const collections = ['objects', 'groups', 'lights', 'scenes'];
-    const deletePromises = [];
-
-    for (const collectionType of collections) {
-      const collectionName = getCollectionName(projectId, collectionType);
-      const q = query(collection(db, collectionName));
-      const querySnapshot = await getDocs(q);
-      
-      querySnapshot.docs.forEach(doc => {
-        deletePromises.push(deleteDoc(doc.ref));
-      });
-    }
-
-    await Promise.all(deletePromises);
-  } catch (error) {
-    console.error('Error deleting project data:', error);
-    throw error;
-  }
+export const saveScene = async (sceneData: any, userId: string, projectId: string): Promise<string> => {
+  console.warn('saveScene is deprecated. Use saveSceneToProject instead.');
+  // Convert old scene format to new format if needed
+  const newSceneData = {
+    objects: [],
+    groups: [],
+    lights: [],
+    settings: sceneData
+  };
+  await saveSceneToProject(projectId, newSceneData);
+  return projectId;
 };

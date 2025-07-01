@@ -1,225 +1,248 @@
 import { useState, useEffect } from 'react';
 import {
+  ProjectDocument,
   FirestoreObject,
   FirestoreGroup,
   FirestoreLight,
   FirestoreScene,
-  subscribeToObjects,
-  subscribeToGroups,
-  subscribeToLights,
-  saveObject,
-  updateObject,
-  deleteObject,
-  saveGroup,
-  updateGroup,
-  deleteGroup,
-  saveLight,
-  updateLight,
-  deleteLight,
+  subscribeToProject,
+  subscribeToUserProjects,
+  getProject,
+  addObjectToProject,
+  updateObjectInProject,
+  removeObjectFromProject,
+  addGroupToProject,
+  updateGroupInProject,
+  removeGroupFromProject,
+  addLightToProject,
+  updateLightInProject,
+  removeLightFromProject,
+  updateSceneSettingsInProject,
+  saveSceneToProject,
   objectToFirestore,
   firestoreToObject
 } from '../services/firestoreService';
 import * as THREE from 'three';
 
-// Hook for managing objects with Firestore (project-scoped)
-export const useFirestoreObjects = (userId: string | null, projectId: string | null) => {
-  const [objects, setObjects] = useState<FirestoreObject[]>([]);
+// Hook for managing a single project document
+export const useProject = (projectId: string | null) => {
+  const [project, setProject] = useState<ProjectDocument | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!userId || !projectId) {
-      setObjects([]);
+    if (!projectId) {
+      setProject(null);
       setLoading(false);
       return;
     }
 
-    const unsubscribe = subscribeToObjects(userId, projectId, (firestoreObjects) => {
-      setObjects(firestoreObjects);
+    setLoading(true);
+    setError(null);
+
+    const unsubscribe = subscribeToProject(projectId, (projectData) => {
+      setProject(projectData);
       setLoading(false);
+      if (!projectData) {
+        setError('Project not found');
+      }
     });
 
     return () => unsubscribe();
-  }, [userId, projectId]);
+  }, [projectId]);
 
+  // Helper functions for scene data manipulation
   const addObject = async (object: THREE.Object3D, name: string) => {
-    if (!userId || !projectId) throw new Error('User not authenticated or project not selected');
+    if (!projectId) throw new Error('No project selected');
     
     try {
-      const firestoreData = objectToFirestore(object, name, undefined, userId, projectId);
-      await saveObject(firestoreData, userId, projectId);
+      const firestoreData = objectToFirestore(object, name);
+      await addObjectToProject(projectId, firestoreData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add object');
       throw err;
     }
   };
 
-  const updateObjectData = async (id: string, object: THREE.Object3D, name: string) => {
-    if (!userId || !projectId) throw new Error('User not authenticated or project not selected');
+  const updateObject = async (objectId: string, object: THREE.Object3D, name: string) => {
+    if (!projectId) throw new Error('No project selected');
     
     try {
-      const firestoreData = objectToFirestore(object, name, id, userId, projectId);
-      await updateObject(id, firestoreData, userId, projectId);
+      const firestoreData = objectToFirestore(object, name, objectId);
+      await updateObjectInProject(projectId, objectId, firestoreData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update object');
       throw err;
     }
   };
 
-  const removeObject = async (id: string) => {
-    if (!projectId) throw new Error('Project not selected');
+  const removeObject = async (objectId: string) => {
+    if (!projectId) throw new Error('No project selected');
     
     try {
-      await deleteObject(id, projectId);
+      await removeObjectFromProject(projectId, objectId);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to remove object');
       throw err;
     }
   };
 
-  return {
-    objects,
-    loading,
-    error,
-    addObject,
-    updateObject: updateObjectData,
-    removeObject
-  };
-};
-
-// Hook for managing groups with Firestore (project-scoped)
-export const useFirestoreGroups = (userId: string | null, projectId: string | null) => {
-  const [groups, setGroups] = useState<FirestoreGroup[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!userId || !projectId) {
-      setGroups([]);
-      setLoading(false);
-      return;
-    }
-
-    const unsubscribe = subscribeToGroups(userId, projectId, (firestoreGroups) => {
-      setGroups(firestoreGroups);
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, [userId, projectId]);
-
-  const addGroup = async (groupData: Omit<FirestoreGroup, 'id' | 'userId' | 'projectId' | 'createdAt' | 'updatedAt'>) => {
-    if (!userId || !projectId) throw new Error('User not authenticated or project not selected');
+  const addGroup = async (groupData: Omit<FirestoreGroup, 'id' | 'createdAt' | 'updatedAt'>) => {
+    if (!projectId) throw new Error('No project selected');
     
     try {
-      await saveGroup({
-        ...groupData,
-        createdAt: undefined,
-        updatedAt: undefined
-      }, userId, projectId);
+      await addGroupToProject(projectId, groupData as FirestoreGroup);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add group');
       throw err;
     }
   };
 
-  const updateGroupData = async (id: string, groupData: Partial<FirestoreGroup>) => {
-    if (!userId || !projectId) throw new Error('User not authenticated or project not selected');
+  const updateGroup = async (groupId: string, groupData: Partial<FirestoreGroup>) => {
+    if (!projectId) throw new Error('No project selected');
     
     try {
-      await updateGroup(id, groupData, userId, projectId);
+      await updateGroupInProject(projectId, groupId, groupData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update group');
       throw err;
     }
   };
 
-  const removeGroup = async (id: string) => {
-    if (!projectId) throw new Error('Project not selected');
+  const removeGroup = async (groupId: string) => {
+    if (!projectId) throw new Error('No project selected');
     
     try {
-      await deleteGroup(id, projectId);
+      await removeGroupFromProject(projectId, groupId);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to remove group');
       throw err;
     }
   };
 
-  return {
-    groups,
-    loading,
-    error,
-    addGroup,
-    updateGroup: updateGroupData,
-    removeGroup
-  };
-};
-
-// Hook for managing lights with Firestore (project-scoped)
-export const useFirestoreLights = (userId: string | null, projectId: string | null) => {
-  const [lights, setLights] = useState<FirestoreLight[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!userId || !projectId) {
-      setLights([]);
-      setLoading(false);
-      return;
-    }
-
-    const unsubscribe = subscribeToLights(userId, projectId, (firestoreLights) => {
-      setLights(firestoreLights);
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, [userId, projectId]);
-
-  const addLight = async (lightData: Omit<FirestoreLight, 'id' | 'userId' | 'projectId' | 'createdAt' | 'updatedAt'>) => {
-    if (!userId || !projectId) throw new Error('User not authenticated or project not selected');
+  const addLight = async (lightData: Omit<FirestoreLight, 'id' | 'createdAt' | 'updatedAt'>) => {
+    if (!projectId) throw new Error('No project selected');
     
     try {
-      await saveLight({
-        ...lightData,
-        createdAt: undefined,
-        updatedAt: undefined
-      }, userId, projectId);
+      await addLightToProject(projectId, lightData as FirestoreLight);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add light');
       throw err;
     }
   };
 
-  const updateLightData = async (id: string, lightData: Partial<FirestoreLight>) => {
-    if (!userId || !projectId) throw new Error('User not authenticated or project not selected');
+  const updateLight = async (lightId: string, lightData: Partial<FirestoreLight>) => {
+    if (!projectId) throw new Error('No project selected');
     
     try {
-      await updateLight(id, lightData, userId, projectId);
+      await updateLightInProject(projectId, lightId, lightData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update light');
       throw err;
     }
   };
 
-  const removeLight = async (id: string) => {
-    if (!projectId) throw new Error('Project not selected');
+  const removeLight = async (lightId: string) => {
+    if (!projectId) throw new Error('No project selected');
     
     try {
-      await deleteLight(id, projectId);
+      await removeLightFromProject(projectId, lightId);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to remove light');
       throw err;
     }
   };
 
+  const updateSceneSettings = async (settings: Partial<FirestoreScene>) => {
+    if (!projectId) throw new Error('No project selected');
+    
+    try {
+      await updateSceneSettingsInProject(projectId, settings);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update scene settings');
+      throw err;
+    }
+  };
+
+  const saveCompleteScene = async (sceneData: {
+    objects: FirestoreObject[];
+    groups: FirestoreGroup[];
+    lights: FirestoreLight[];
+    settings: FirestoreScene;
+  }) => {
+    if (!projectId) throw new Error('No project selected');
+    
+    try {
+      await saveSceneToProject(projectId, sceneData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save scene');
+      throw err;
+    }
+  };
+
   return {
-    lights,
+    project,
     loading,
     error,
+    
+    // Scene data accessors
+    objects: project?.sceneData?.objects || [],
+    groups: project?.sceneData?.groups || [],
+    lights: project?.sceneData?.lights || [],
+    sceneSettings: project?.sceneData?.settings || {
+      backgroundColor: '#0f0f23',
+      showGrid: true,
+      gridSize: 10,
+      gridDivisions: 10,
+      cameraPerspective: 'perspective',
+      cameraZoom: 1,
+      showLightHelpers: true,
+      hideAllMenus: false
+    },
+    
+    // Scene manipulation functions
+    addObject,
+    updateObject,
+    removeObject,
+    addGroup,
+    updateGroup,
+    removeGroup,
     addLight,
-    updateLight: updateLightData,
-    removeLight
+    updateLight,
+    removeLight,
+    updateSceneSettings,
+    saveCompleteScene
+  };
+};
+
+// Hook for managing user's projects list
+export const useUserProjects = (userId: string | null) => {
+  const [projects, setProjects] = useState<ProjectDocument[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!userId) {
+      setProjects([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    const unsubscribe = subscribeToUserProjects(userId, (projectsData) => {
+      setProjects(projectsData);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [userId]);
+
+  return {
+    projects,
+    loading,
+    error
   };
 };
 
@@ -263,39 +286,35 @@ export const useThreeObjects = (firestoreObjects: FirestoreObject[]) => {
   return threeObjects;
 };
 
-// Combined hook for easier integration (project-scoped)
+// Legacy compatibility hook (deprecated)
 export const useFirestoreScene = (userId: string | null, projectId: string | null) => {
-  const objectsHook = useFirestoreObjects(userId, projectId);
-  const groupsHook = useFirestoreGroups(userId, projectId);
-  const lightsHook = useFirestoreLights(userId, projectId);
+  console.warn('useFirestoreScene is deprecated. Use useProject instead.');
   
-  const threeObjects = useThreeObjects(objectsHook.objects);
-
-  const loading = objectsHook.loading || groupsHook.loading || lightsHook.loading;
-  const error = objectsHook.error || groupsHook.error || lightsHook.error;
+  const projectHook = useProject(projectId);
+  const threeObjects = useThreeObjects(projectHook.objects);
 
   return {
     // Objects
     objects: threeObjects,
-    firestoreObjects: objectsHook.objects,
-    addObject: objectsHook.addObject,
-    updateObject: objectsHook.updateObject,
-    removeObject: objectsHook.removeObject,
+    firestoreObjects: projectHook.objects,
+    addObject: projectHook.addObject,
+    updateObject: projectHook.updateObject,
+    removeObject: projectHook.removeObject,
     
     // Groups
-    groups: groupsHook.groups,
-    addGroup: groupsHook.addGroup,
-    updateGroup: groupsHook.updateGroup,
-    removeGroup: groupsHook.removeGroup,
+    groups: projectHook.groups,
+    addGroup: projectHook.addGroup,
+    updateGroup: projectHook.updateGroup,
+    removeGroup: projectHook.removeGroup,
     
     // Lights
-    lights: lightsHook.lights,
-    addLight: lightsHook.addLight,
-    updateLight: lightsHook.updateLight,
-    removeLight: lightsHook.removeLight,
+    lights: projectHook.lights,
+    addLight: projectHook.addLight,
+    updateLight: projectHook.updateLight,
+    removeLight: projectHook.removeLight,
     
     // Status
-    loading,
-    error
+    loading: projectHook.loading,
+    error: projectHook.error
   };
 };
