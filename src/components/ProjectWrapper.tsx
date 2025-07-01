@@ -126,53 +126,53 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
 
   return (
     <div className="w-full h-screen relative">
-      {/* Project Header */}
-      <div className="absolute top-4 left-4 right-4 z-50 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          {/* Back Button */}
-          <button
-            onClick={onBackToClassroom}
-            className="flex items-center gap-2 bg-[#1a1a1a] hover:bg-[#2a2a2a] rounded-xl shadow-2xl shadow-black/20 p-3 border border-white/5 transition-all duration-200 hover:scale-105"
-            title="Back to Classroom"
-          >
-            <ArrowLeft className="w-5 h-5 text-white/90" />
-            <span className="text-white/90 font-medium hidden sm:block">Classroom</span>
-          </button>
+      {/* Save Button - Top Left */}
+      <div className="absolute top-4 left-4 z-50 flex flex-col gap-2">
+        {/* Manual Save Button */}
+        <button
+          onClick={handleManualSave}
+          disabled={saveStatus === 'saving'}
+          className={`flex items-center gap-2 px-4 py-3 rounded-xl shadow-2xl shadow-black/20 border transition-all duration-200 font-medium ${
+            saveStatus === 'saving'
+              ? 'bg-blue-500/20 border-blue-500/30 text-blue-400 cursor-wait'
+              : saveStatus === 'saved'
+                ? 'bg-green-500/20 border-green-500/30 text-green-400 hover:bg-green-500/30'
+                : saveStatus === 'error'
+                  ? 'bg-red-500/20 border-red-500/30 text-red-400 hover:bg-red-500/30'
+                  : 'bg-[#1a1a1a] border-white/5 text-white/90 hover:bg-[#2a2a2a] hover:scale-105'
+          }`}
+          title="Save project metadata"
+        >
+          {getSaveButtonContent()}
+        </button>
 
-          {/* Hide Interface Button */}
-          <HideInterfaceButton />
-        </div>
+        {/* Cloud Save Button */}
+        <SaveButton user={user} projectId={projectId} />
 
-        {/* Save Controls */}
-        <div className="flex items-center gap-4">
-          {/* Manual Save Button */}
-          <button
-            onClick={handleManualSave}
-            disabled={saveStatus === 'saving'}
-            className={`flex items-center gap-2 px-4 py-3 rounded-xl shadow-2xl shadow-black/20 border transition-all duration-200 font-medium ${
-              saveStatus === 'saving'
-                ? 'bg-blue-500/20 border-blue-500/30 text-blue-400 cursor-wait'
-                : saveStatus === 'saved'
-                  ? 'bg-green-500/20 border-green-500/30 text-green-400 hover:bg-green-500/30'
-                  : saveStatus === 'error'
-                    ? 'bg-red-500/20 border-red-500/30 text-red-400 hover:bg-red-500/30'
-                    : 'bg-[#1a1a1a] border-white/5 text-white/90 hover:bg-[#2a2a2a] hover:scale-105'
-            }`}
-          >
-            {getSaveButtonContent()}
-          </button>
-
-          {/* Cloud Save Button */}
-          <SaveButton user={user} projectId={projectId} />
-
-          {lastSaved && (
-            <div className="bg-[#1a1a1a]/90 backdrop-blur-sm rounded-xl shadow-2xl shadow-black/20 p-3 border border-white/5">
-              <div className="text-xs text-white/60">
-                Last saved: {lastSaved.toLocaleTimeString()}
-              </div>
+        {lastSaved && (
+          <div className="bg-[#1a1a1a]/90 backdrop-blur-sm rounded-xl shadow-2xl shadow-black/20 p-2 border border-white/5">
+            <div className="text-xs text-white/60 text-center">
+              Last saved: {lastSaved.toLocaleTimeString()}
             </div>
-          )}
-        </div>
+          </div>
+        )}
+      </div>
+
+      {/* Back Button - Top Left, below save buttons */}
+      <div className="absolute top-4 left-4 z-40" style={{ marginTop: '140px' }}>
+        <button
+          onClick={onBackToClassroom}
+          className="flex items-center gap-2 bg-[#1a1a1a] hover:bg-[#2a2a2a] rounded-xl shadow-2xl shadow-black/20 p-3 border border-white/5 transition-all duration-200 hover:scale-105"
+          title="Back to Classroom"
+        >
+          <ArrowLeft className="w-5 h-5 text-white/90" />
+          <span className="text-white/90 font-medium hidden sm:block">Classroom</span>
+        </button>
+      </div>
+
+      {/* Hide Interface Button - Top Left, below back button */}
+      <div className="absolute top-4 left-4 z-40" style={{ marginTop: '200px' }}>
+        <HideInterfaceButton />
       </div>
 
       {/* 3D Scene */}

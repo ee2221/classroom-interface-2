@@ -40,8 +40,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ projectName }) => {
   // Initialize position to top left area, avoiding other UI elements
   useEffect(() => {
     if (panelRef.current && position.x === 0 && position.y === 0) {
-      // Position in top left area, with some margin from edges
-      setPosition({ x: 80, y: 16 }); // 80px from left to avoid hide interface button, 16px from top
+      // Position in top left area, with margin to avoid save buttons
+      setPosition({ x: 80, y: 280 }); // 80px from left, 280px from top to avoid save buttons
     }
   }, [isOpen]);
 
@@ -145,10 +145,10 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ projectName }) => {
     updateSceneSettings({ hideAllMenus: !sceneSettings.hideAllMenus });
   };
 
-  // Settings button (always visible) - positioned under Hide Interface button
+  // Settings button (always visible) - positioned to avoid save buttons
   if (!isOpen) {
     return (
-      <div className="fixed top-20 left-4 z-50">
+      <div className="fixed z-50" style={{ top: '280px', left: '16px' }}>
         <button
           onClick={() => setIsOpen(true)}
           className="flex items-center gap-3 p-3 bg-[#1a1a1a] hover:bg-[#2a2a2a] rounded-xl shadow-2xl shadow-black/20 border border-white/5 transition-all duration-200 hover:scale-105"
