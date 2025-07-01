@@ -124,13 +124,13 @@ export const objectToFirestore = (object: THREE.Object3D, name: string, id?: str
     opacity: 1,
     visible: object.visible,
     locked: false,
-    updatedAt: serverTimestamp()
+    updatedAt: Timestamp.now()
   };
 
   if (id) {
     firestoreObj.id = id;
   } else {
-    firestoreObj.createdAt = serverTimestamp();
+    firestoreObj.createdAt = Timestamp.now();
   }
 
   // Extract material properties if it's a mesh
@@ -361,8 +361,8 @@ export const addObjectToProject = async (
     const newObject = {
       ...objectData,
       id: crypto.randomUUID(),
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now()
     };
 
     const updatedObjects = [...project.sceneData.objects, newObject];
@@ -389,7 +389,7 @@ export const updateObjectInProject = async (
 
     const updatedObjects = project.sceneData.objects.map(obj =>
       obj.id === objectId 
-        ? { ...obj, ...objectData, updatedAt: serverTimestamp() }
+        ? { ...obj, ...objectData, updatedAt: Timestamp.now() }
         : obj
     );
     
@@ -443,8 +443,8 @@ export const addGroupToProject = async (
     const newGroup = {
       ...groupData,
       id: crypto.randomUUID(),
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now()
     };
 
     const updatedGroups = [...project.sceneData.groups, newGroup];
@@ -471,7 +471,7 @@ export const updateGroupInProject = async (
 
     const updatedGroups = project.sceneData.groups.map(group =>
       group.id === groupId 
-        ? { ...group, ...groupData, updatedAt: serverTimestamp() }
+        ? { ...group, ...groupData, updatedAt: Timestamp.now() }
         : group
     );
     
@@ -524,8 +524,8 @@ export const addLightToProject = async (
     const newLight = {
       ...lightData,
       id: crypto.randomUUID(),
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now()
     };
 
     const updatedLights = [...project.sceneData.lights, newLight];
@@ -552,7 +552,7 @@ export const updateLightInProject = async (
 
     const updatedLights = project.sceneData.lights.map(light =>
       light.id === lightId 
-        ? { ...light, ...lightData, updatedAt: serverTimestamp() }
+        ? { ...light, ...lightData, updatedAt: Timestamp.now() }
         : light
     );
     
