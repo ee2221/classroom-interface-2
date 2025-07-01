@@ -30,79 +30,64 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
   user, 
   onBackToClassroom 
 }) => {
-  const { sceneSettings, objects, groups, lights, resetScene } = useSceneStore();
+  const { sceneSettings, objects, groups, lights, resetScene, loadSceneFromProject } = useSceneStore();
   const { project, loading, error } = useProject(projectId);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [hasLoadedProject, setHasLoadedProject] = useState(false);
 
-  // Load project data into scene store when project loads
+  // Load project data into scene store when project loads (only once)
   useEffect(() => {
-    if (project && project.sceneData) {
-      // Reset scene first
-      resetScene();
+    if (project && project.sceneData && !hasLoadedProject) {
+      console.log('Loading project data into scene:', {
+        objects: project.sceneData.objects?.length || 0,
+        groups: project.sceneData.groups?.length || 0,
+        lights: project.sceneData.lights?.length || 0
+      });
       
       // Load scene data into the store
-      const { loadSceneFromProject } = useSceneStore.getState();
-      if (loadSceneFromProject) {
-        loadSceneFromProject(project.sceneData);
-      }
+      loadSceneFromProject(project.sceneData);
+      setHasLoadedProject(true);
     }
-  }, [project, resetScene]);
+  }, [project, hasLoadedProject, loadSceneFromProject]);
 
-  // Reset scene when project changes
+  // Reset scene when project ID changes (switching projects)
   useEffect(() => {
+    console.log('Project ID changed, resetting scene for:', projectId);
     resetScene();
+    setHasLoadedProject(false);
+    setLastSaved(null);
+    setSaveStatus('idle');
   }, [projectId, resetScene]);
-
-  // Auto-save functionality
-  useEffect(() => {
-    const autoSave = async () => {
-      if (!projectId || !user) return;
-
-      try {
-        setSaveStatus('saving');
-        
-        // Update project metadata
-        await updateProjectMetadata(projectId, {
-          lastOpened: new Date() as any
-        });
-
-        setSaveStatus('saved');
-        setLastSaved(new Date());
-        
-        // Reset to idle after 2 seconds
-        setTimeout(() => setSaveStatus('idle'), 2000);
-      } catch (error) {
-        console.error('Auto-save error:', error);
-        setSaveStatus('error');
-        setTimeout(() => setSaveStatus('idle'), 3000);
-      }
-    };
-
-    // Auto-save every 30 seconds if there are changes
-    const interval = setInterval(() => {
-      if (objects.length > 0 || groups.length > 0 || lights.length > 0) {
-        autoSave();
-      }
-    }, 30000);
-
-    return () => clearInterval(interval);
-  }, [projectId, user, objects.length, groups.length, lights.length]);
 
   const handleUnifiedSave = async () => {
     if (!projectId || !user || saveStatus === 'saving') return;
 
     try {
       setSaveStatus('saving');
+      console.log('Saving scene data:', {
+        objects: objects.length,
+        groups: groups.length,
+        lights: lights.length
+      });
       
-      // Save project metadata
+      // Update project metadata
       await updateProjectMetadata(projectId, {
         lastOpened: new Date() as any
       });
 
-      // Save complete scene data to project document
+      // Convert current scene state to Firestore format
       const sceneData = {
-        objects: objects.map(obj => objectToFirestore(obj.object, obj.name, obj.id)),
+        objects: objects.map(obj => {
+          const firestoreObj = objectToFirestore(obj.object, obj.name, obj.id);
+          // Preserve additional properties
+          firestoreObj.visible = obj.visible;
+          firestoreObj.locked = obj.locked;
+          if (obj.groupId) {
+            firestoreObj.groupId = obj.groupId;
+          }
+          return firestoreObj;
+        }),
         groups: groups.map(group => ({
           id: group.id,
           name: group.name,
@@ -138,10 +123,14 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
         }
       };
 
+      console.log('Saving scene data to project:', sceneData);
       await saveSceneToProject(projectId, sceneData);
 
       setSaveStatus('saved');
       setLastSaved(new Date());
+      
+      // Mark as saved in the scene store
+      useSceneStore.getState().markSaved();
       
       setTimeout(() => setSaveStatus('idle'), 2000);
     } catch (error) {
@@ -150,6 +139,31 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
       setTimeout(() => setSaveStatus('idle'), 3000);
     }
   };
+
+  // Auto-save functionality - only save metadata, not scene data
+  useEffect(() => {
+    const autoSave = async () => {
+      if (!projectId || !user || saveStatus === 'saving') return;
+
+      try {
+        // Only update last opened timestamp for auto-save
+        await updateProjectMetadata(projectId, {
+          lastOpened: new Date() as any
+        });
+      } catch (error) {
+        console.error('Auto-save error:', error);
+      }
+    };
+
+    // Auto-save metadata every 60 seconds
+    const interval = setInterval(() => {
+      if (hasLoadedProject) {
+        autoSave();
+      }
+    }, 60000);
+
+    return () => clearInterval(interval);
+  }, [projectId, user, hasLoadedProject, saveStatus]);
 
   const getSaveButtonContent = () => {
     switch (saveStatus) {
@@ -224,7 +238,7 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
         {/* Unified Save Button */}
         <button
           onClick={handleUnifiedSave}
-          disabled={saveStatus === 'saving' || !user || !projectId}
+          disabled={saveStatus === 'saving' || !user || !projectId || !hasLoadedProject}
           className={`flex items-center gap-2 px-4 py-3 rounded-xl shadow-2xl shadow-black/20 border transition-all duration-200 font-medium ${
             saveStatus === 'saving'
               ? 'bg-blue-500/20 border-blue-500/30 text-blue-400 cursor-wait'
@@ -232,7 +246,7 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
                 ? 'bg-green-500/20 border-green-500/30 text-green-400 hover:bg-green-500/30 hover:scale-105'
                 : saveStatus === 'error'
                   ? 'bg-red-500/20 border-red-500/30 text-red-400 hover:bg-red-500/30 hover:scale-105'
-                  : !user || !projectId
+                  : !user || !projectId || !hasLoadedProject
                     ? 'bg-gray-600/20 border-gray-600/30 text-gray-400 cursor-not-allowed'
                     : 'bg-[#1a1a1a] border-white/5 text-white/90 hover:bg-[#2a2a2a] hover:scale-105'
           }`}
@@ -241,9 +255,11 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
               ? 'Sign in to save'
               : !projectId
                 ? 'Select a project to save'
-                : saveStatus === 'saving' 
-                  ? 'Saving project and scene data...' 
-                  : 'Save project metadata and scene data'
+                : !hasLoadedProject
+                  ? 'Loading project...'
+                  : saveStatus === 'saving' 
+                    ? 'Saving project and scene data...' 
+                    : 'Save project metadata and scene data'
           }
         >
           {getSaveButtonContent()}
@@ -275,7 +291,7 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
       )}
 
       {/* Scene Info - Below last saved */}
-      {hasContent && saveStatus === 'idle' && user && projectId && (
+      {hasContent && saveStatus === 'idle' && user && projectId && hasLoadedProject && (
         <div className="absolute top-32 left-4 z-40">
           <div className="bg-[#1a1a1a]/90 border border-white/10 rounded-lg px-3 py-2 text-xs text-white/60">
             <div className="flex items-center gap-4">
@@ -288,6 +304,18 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
               {lights.length > 0 && (
                 <span>{lights.length} light{lights.length !== 1 ? 's' : ''}</span>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Loading indicator for project data */}
+      {!hasLoadedProject && !loading && (
+        <div className="absolute top-32 left-4 z-40">
+          <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2 text-xs text-blue-400">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 border border-blue-400/30 border-t-blue-400 rounded-full animate-spin"></div>
+              <span>Loading scene data...</span>
             </div>
           </div>
         </div>
