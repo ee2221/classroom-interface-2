@@ -32,17 +32,6 @@ export interface FirestoreObject {
   groupId?: string;
   geometryParams?: any;
   materialParams?: any;
-  // Enhanced geometry data for complex shapes
-  geometryData?: {
-    type: string;
-    vertices?: number[];
-    indices?: number[];
-    normals?: number[];
-    uvs?: number[];
-    parameters?: any;
-  };
-  // For group objects (like trees, hearts, etc.)
-  children?: FirestoreObject[];
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 }
@@ -111,343 +100,8 @@ export interface ProjectDocument {
   };
 }
 
-// Helper function to serialize THREE.Shape objects
-const serializeShape = (shape: THREE.Shape): any => {
-  try {
-    // Use THREE.js built-in toJSON method if available
-    if (typeof shape.toJSON === 'function') {
-      return shape.toJSON();
-    }
-    
-    // Fallback: extract basic shape data
-    return {
-      type: 'Shape',
-      curves: shape.curves?.map(curve => {
-        if (typeof curve.toJSON === 'function') {
-          return curve.toJSON();
-        }
-        return { type: curve.type || 'UnknownCurve' };
-      }) || [],
-      holes: shape.holes?.map(hole => serializeShape(hole)) || []
-    };
-  } catch (error) {
-    console.warn('Failed to serialize Shape object:', error);
-    return { type: 'Shape', serialized: false };
-  }
-};
-
-// Helper function to deserialize THREE.Shape objects
-const deserializeShape = (shapeData: any): THREE.Shape => {
-  try {
-    // If it's a proper JSON representation, use THREE.js loader
-    if (shapeData.curves && Array.isArray(shapeData.curves)) {
-      const shape = new THREE.Shape();
-      // Basic shape reconstruction - this is a simplified approach
-      // For complex shapes, you might need more sophisticated deserialization
-      return shape;
-    }
-    
-    // Fallback: return empty shape
-    return new THREE.Shape();
-  } catch (error) {
-    console.warn('Failed to deserialize Shape object:', error);
-    return new THREE.Shape();
-  }
-};
-
-// Helper function to serialize geometry parameters, handling THREE.Shape objects
-const serializeGeometryParameters = (parameters: any): any => {
-  if (!parameters) return parameters;
-  
-  const serialized = { ...parameters };
-  
-  // Handle shapes array in ShapeGeometry
-  if (serialized.shapes && Array.isArray(serialized.shapes)) {
-    serialized.shapes = serialized.shapes.map((shape: any) => {
-      if (shape instanceof THREE.Shape) {
-        return serializeShape(shape);
-      }
-      return shape;
-    });
-  }
-  
-  // Handle single shape in ShapeGeometry
-  if (serialized.shape && serialized.shape instanceof THREE.Shape) {
-    serialized.shape = serializeShape(serialized.shape);
-  }
-  
-  return serialized;
-};
-
-// Helper function to deserialize geometry parameters, handling serialized Shape objects
-const deserializeGeometryParameters = (parameters: any): any => {
-  if (!parameters) return parameters;
-  
-  const deserialized = { ...parameters };
-  
-  // Handle shapes array in ShapeGeometry
-  if (deserialized.shapes && Array.isArray(deserialized.shapes)) {
-    deserialized.shapes = deserialized.shapes.map((shapeData: any) => {
-      if (shapeData && typeof shapeData === 'object' && shapeData.type === 'Shape') {
-        return deserializeShape(shapeData);
-      }
-      return shapeData;
-    });
-  }
-  
-  // Handle single shape in ShapeGeometry
-  if (deserialized.shape && typeof deserialized.shape === 'object' && deserialized.shape.type === 'Shape') {
-    deserialized.shape = deserializeShape(deserialized.shape);
-  }
-  
-  return deserialized;
-};
-
-// Enhanced helper function to serialize geometry data
-const serializeGeometry = (geometry: THREE.BufferGeometry): any => {
-  const geometryData: any = {
-    type: geometry.type
-  };
-
-  // Store vertex positions
-  if (geometry.attributes.position) {
-    geometryData.vertices = Array.from(geometry.attributes.position.array);
-  }
-
-  // Store indices if present
-  if (geometry.index) {
-    geometryData.indices = Array.from(geometry.index.array);
-  }
-
-  // Store normals if present
-  if (geometry.attributes.normal) {
-    geometryData.normals = Array.from(geometry.attributes.normal.array);
-  }
-
-  // Store UVs if present
-  if (geometry.attributes.uv) {
-    geometryData.uvs = Array.from(geometry.attributes.uv.array);
-  }
-
-  // Store geometry parameters for primitive shapes, handling THREE.Shape objects
-  if ('parameters' in geometry) {
-    geometryData.parameters = serializeGeometryParameters(geometry.parameters);
-  }
-
-  return geometryData;
-};
-
-// Enhanced helper function to deserialize geometry data
-const deserializeGeometry = (geometryData: any): THREE.BufferGeometry => {
-  let geometry: THREE.BufferGeometry;
-
-  // Try to recreate primitive geometries first
-  if (geometryData.parameters) {
-    const params = deserializeGeometryParameters(geometryData.parameters);
-    
-    switch (geometryData.type) {
-      case 'BoxGeometry':
-        geometry = new THREE.BoxGeometry(
-          params.width || 1,
-          params.height || 1,
-          params.depth || 1
-        );
-        break;
-      case 'SphereGeometry':
-        geometry = new THREE.SphereGeometry(
-          params.radius || 0.5,
-          params.widthSegments || 32,
-          params.heightSegments || 16
-        );
-        break;
-      case 'CylinderGeometry':
-        geometry = new THREE.CylinderGeometry(
-          params.radiusTop || 0.5,
-          params.radiusBottom || 0.5,
-          params.height || 1,
-          params.radialSegments || 32
-        );
-        break;
-      case 'ConeGeometry':
-        geometry = new THREE.ConeGeometry(
-          params.radius || 0.5,
-          params.height || 1,
-          params.radialSegments || 32
-        );
-        break;
-      case 'PlaneGeometry':
-        geometry = new THREE.PlaneGeometry(
-          params.width || 1,
-          params.height || 1,
-          params.widthSegments || 1,
-          params.heightSegments || 1
-        );
-        break;
-      case 'TorusGeometry':
-        geometry = new THREE.TorusGeometry(
-          params.radius || 1,
-          params.tube || 0.4,
-          params.radialSegments || 8,
-          params.tubularSegments || 6
-        );
-        break;
-      case 'ShapeGeometry':
-        // Handle ShapeGeometry with deserialized shapes
-        if (params.shapes && Array.isArray(params.shapes)) {
-          geometry = new THREE.ShapeGeometry(params.shapes, params.curveSegments || 12);
-        } else if (params.shape) {
-          geometry = new THREE.ShapeGeometry(params.shape, params.curveSegments || 12);
-        } else {
-          // Fallback to a simple shape
-          const fallbackShape = new THREE.Shape();
-          fallbackShape.moveTo(0, 0);
-          fallbackShape.lineTo(1, 0);
-          fallbackShape.lineTo(1, 1);
-          fallbackShape.lineTo(0, 1);
-          fallbackShape.lineTo(0, 0);
-          geometry = new THREE.ShapeGeometry(fallbackShape);
-        }
-        break;
-      default:
-        geometry = new THREE.BufferGeometry();
-        break;
-    }
-  } else {
-    // Create custom geometry from vertex data
-    geometry = new THREE.BufferGeometry();
-  }
-
-  // Apply custom vertex data if available (for complex shapes)
-  if (geometryData.vertices) {
-    const vertices = new Float32Array(geometryData.vertices);
-    geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
-  }
-
-  if (geometryData.indices) {
-    const indices = new Uint16Array(geometryData.indices);
-    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-  }
-
-  if (geometryData.normals) {
-    const normals = new Float32Array(geometryData.normals);
-    geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
-  } else if (geometryData.vertices) {
-    // Compute normals if not provided
-    geometry.computeVertexNormals();
-  }
-
-  if (geometryData.uvs) {
-    const uvs = new Float32Array(geometryData.uvs);
-    geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-  }
-
-  return geometry;
-};
-
-// Enhanced helper function to serialize a complete object (including groups)
-const serializeObject = (object: THREE.Object3D): any => {
-  const objectData: any = {
-    type: object.type,
-    position: {
-      x: object.position.x,
-      y: object.position.y,
-      z: object.position.z
-    },
-    rotation: {
-      x: object.rotation.x,
-      y: object.rotation.y,
-      z: object.rotation.z
-    },
-    scale: {
-      x: object.scale.x,
-      y: object.scale.y,
-      z: object.scale.z
-    },
-    visible: object.visible
-  };
-
-  if (object instanceof THREE.Mesh) {
-    // Serialize geometry
-    objectData.geometryData = serializeGeometry(object.geometry);
-    
-    // Serialize material
-    if (object.material instanceof THREE.MeshStandardMaterial) {
-      objectData.materialParams = {
-        color: '#' + object.material.color.getHexString(),
-        opacity: object.material.opacity,
-        transparent: object.material.transparent,
-        metalness: object.material.metalness,
-        roughness: object.material.roughness
-      };
-    }
-  } else if (object instanceof THREE.Group) {
-    // Serialize all children for group objects
-    objectData.children = object.children.map(child => serializeObject(child));
-  }
-
-  return objectData;
-};
-
-// Enhanced helper function to deserialize a complete object
-const deserializeObject = (objectData: any): THREE.Object3D => {
-  let object: THREE.Object3D;
-
-  if (objectData.type === 'Mesh' && objectData.geometryData) {
-    // Recreate mesh with preserved geometry
-    const geometry = deserializeGeometry(objectData.geometryData);
-    
-    // Recreate material
-    const materialParams = objectData.materialParams || {
-      color: '#44aa88',
-      opacity: 1,
-      transparent: false,
-      metalness: 0.1,
-      roughness: 0.7
-    };
-    
-    const material = new THREE.MeshStandardMaterial(materialParams);
-    object = new THREE.Mesh(geometry, material);
-  } else if (objectData.type === 'Group' && objectData.children) {
-    // Recreate group with all children
-    object = new THREE.Group();
-    
-    objectData.children.forEach((childData: any) => {
-      const child = deserializeObject(childData);
-      object.add(child);
-    });
-  } else {
-    // Fallback to basic object
-    console.warn('Unknown object type or missing data, creating fallback:', objectData.type);
-    const geometry = new THREE.BoxGeometry(1, 1, 1);
-    const material = new THREE.MeshStandardMaterial({ color: '#44aa88' });
-    object = new THREE.Mesh(geometry, material);
-  }
-
-  // Apply transform properties
-  object.position.set(
-    objectData.position?.x || 0,
-    objectData.position?.y || 0,
-    objectData.position?.z || 0
-  );
-  object.rotation.set(
-    objectData.rotation?.x || 0,
-    objectData.rotation?.y || 0,
-    objectData.rotation?.z || 0
-  );
-  object.scale.set(
-    objectData.scale?.x || 1,
-    objectData.scale?.y || 1,
-    objectData.scale?.z || 1
-  );
-  object.visible = objectData.visible !== false;
-
-  return object;
-};
-
-// Enhanced helper function to convert THREE.js object to Firestore format
+// Helper function to convert THREE.js object to Firestore format
 export const objectToFirestore = (object: THREE.Object3D, name: string, id?: string): FirestoreObject => {
-  console.log('Converting THREE.js object to Firestore:', name, object.type);
-  
   const firestoreObj: FirestoreObject = {
     name,
     type: object.type,
@@ -479,24 +133,20 @@ export const objectToFirestore = (object: THREE.Object3D, name: string, id?: str
     firestoreObj.createdAt = Timestamp.now();
   }
 
-  // Enhanced serialization for all object types
-  if (object instanceof THREE.Mesh) {
-    // Serialize complete geometry data
-    firestoreObj.geometryData = serializeGeometry(object.geometry);
+  // Extract material properties if it's a mesh
+  if (object instanceof THREE.Mesh && object.material instanceof THREE.MeshStandardMaterial) {
+    firestoreObj.color = '#' + object.material.color.getHexString();
+    firestoreObj.opacity = object.material.opacity;
     
-    // Extract material properties
-    if (object.material instanceof THREE.MeshStandardMaterial) {
-      firestoreObj.color = '#' + object.material.color.getHexString();
-      firestoreObj.opacity = object.material.opacity;
-      
-      firestoreObj.materialParams = {
-        transparent: object.material.transparent,
-        metalness: object.material.metalness,
-        roughness: object.material.roughness
-      };
-    }
+    firestoreObj.materialParams = {
+      transparent: object.material.transparent,
+      metalness: object.material.metalness,
+      roughness: object.material.roughness
+    };
+  }
 
-    // Keep legacy geometryParams for backward compatibility, with proper Shape serialization
+  // Extract geometry parameters with default values to prevent undefined
+  if (object instanceof THREE.Mesh) {
     const geometry = object.geometry;
     if (geometry instanceof THREE.BoxGeometry) {
       firestoreObj.geometryParams = {
@@ -523,168 +173,71 @@ export const objectToFirestore = (object: THREE.Object3D, name: string, id?: str
         height: geometry.parameters.height ?? 1,
         radialSegments: geometry.parameters.radialSegments ?? 32
       };
-    } else if (geometry instanceof THREE.ShapeGeometry) {
-      // Handle ShapeGeometry with proper Shape serialization
-      firestoreObj.geometryParams = serializeGeometryParameters(geometry.parameters);
     }
-  } else if (object instanceof THREE.Group) {
-    // Serialize all children for complex objects like trees, hearts, etc.
-    firestoreObj.children = object.children.map(child => {
-      const childData = serializeObject(child);
-      return {
-        ...childData,
-        name: child.name || 'Child Object',
-        id: crypto.randomUUID()
-      } as FirestoreObject;
-    });
   }
 
-  console.log('Converted to Firestore object:', firestoreObj);
   return firestoreObj;
 };
 
-// Enhanced helper function to convert Firestore data back to THREE.js object
+// Helper function to convert Firestore data back to THREE.js object
 export const firestoreToObject = (data: FirestoreObject): THREE.Object3D | null => {
-  console.log('Converting Firestore object to THREE.js:', data.name, data.type);
-  
   let object: THREE.Object3D | null = null;
 
-  try {
-    if (data.type === 'Group' && data.children) {
-      // Recreate group objects (like trees, hearts, etc.)
-      console.log('Recreating group object with', data.children.length, 'children');
-      object = new THREE.Group();
-      
-      data.children.forEach((childData, index) => {
-        try {
-          const child = deserializeObject(childData);
-          if (child) {
-            child.name = childData.name || `Child ${index}`;
-            object!.add(child);
-          }
-        } catch (error) {
-          console.error('Error recreating child object:', error, childData);
-        }
-      });
-    } else if (data.type === 'Mesh') {
-      // Try to recreate from enhanced geometry data first
-      if (data.geometryData) {
-        console.log('Recreating mesh from geometry data:', data.geometryData.type);
-        const geometry = deserializeGeometry(data.geometryData);
-        
-        // Create material
-        const materialParams = {
-          color: data.color || '#44aa88',
-          transparent: data.opacity < 1,
-          opacity: data.opacity || 1,
-          metalness: 0.1,
-          roughness: 0.7,
-          ...(data.materialParams || {})
-        };
-
-        const material = new THREE.MeshStandardMaterial(materialParams);
-        object = new THREE.Mesh(geometry, material);
-      } else if (data.geometryParams) {
-        // Fallback to legacy geometry params with Shape deserialization
-        console.log('Recreating mesh from legacy geometry params');
-        let geometry: THREE.BufferGeometry;
-        
-        if (data.geometryParams.width !== undefined) {
-          geometry = new THREE.BoxGeometry(
-            data.geometryParams.width,
-            data.geometryParams.height,
-            data.geometryParams.depth
-          );
-        } else if (data.geometryParams.radius !== undefined && data.geometryParams.widthSegments !== undefined) {
-          geometry = new THREE.SphereGeometry(
-            data.geometryParams.radius,
-            data.geometryParams.widthSegments,
-            data.geometryParams.heightSegments
-          );
-        } else if (data.geometryParams.radiusTop !== undefined) {
-          geometry = new THREE.CylinderGeometry(
-            data.geometryParams.radiusTop,
-            data.geometryParams.radiusBottom,
-            data.geometryParams.height,
-            data.geometryParams.radialSegments
-          );
-        } else if (data.geometryParams.radius !== undefined && data.geometryParams.radialSegments !== undefined) {
-          geometry = new THREE.ConeGeometry(
-            data.geometryParams.radius,
-            data.geometryParams.height,
-            data.geometryParams.radialSegments
-          );
-        } else if (data.geometryParams.shapes || data.geometryParams.shape) {
-          // Handle ShapeGeometry with deserialized shapes
-          const deserializedParams = deserializeGeometryParameters(data.geometryParams);
-          if (deserializedParams.shapes && Array.isArray(deserializedParams.shapes)) {
-            geometry = new THREE.ShapeGeometry(deserializedParams.shapes, deserializedParams.curveSegments || 12);
-          } else if (deserializedParams.shape) {
-            geometry = new THREE.ShapeGeometry(deserializedParams.shape, deserializedParams.curveSegments || 12);
-          } else {
-            // Fallback shape
-            const fallbackShape = new THREE.Shape();
-            fallbackShape.moveTo(0, 0);
-            fallbackShape.lineTo(1, 0);
-            fallbackShape.lineTo(1, 1);
-            fallbackShape.lineTo(0, 1);
-            fallbackShape.lineTo(0, 0);
-            geometry = new THREE.ShapeGeometry(fallbackShape);
-          }
-        } else {
-          geometry = new THREE.BoxGeometry(1, 1, 1);
-        }
-
-        const material = new THREE.MeshStandardMaterial({
-          color: data.color || '#44aa88',
-          transparent: data.opacity < 1,
-          opacity: data.opacity || 1,
-          ...data.materialParams
-        });
-
-        object = new THREE.Mesh(geometry, material);
-      } else {
-        console.warn('No geometry data found, creating default box');
-        const geometry = new THREE.BoxGeometry(1, 1, 1);
-        const material = new THREE.MeshStandardMaterial({ color: data.color || '#44aa88' });
-        object = new THREE.Mesh(geometry, material);
-      }
+  // Create geometry based on type and parameters
+  if (data.type === 'Mesh' && data.geometryParams) {
+    let geometry: THREE.BufferGeometry;
+    
+    if (data.geometryParams.width !== undefined) {
+      // Box geometry
+      geometry = new THREE.BoxGeometry(
+        data.geometryParams.width,
+        data.geometryParams.height,
+        data.geometryParams.depth
+      );
+    } else if (data.geometryParams.radius !== undefined && data.geometryParams.widthSegments !== undefined) {
+      // Sphere geometry
+      geometry = new THREE.SphereGeometry(
+        data.geometryParams.radius,
+        data.geometryParams.widthSegments,
+        data.geometryParams.heightSegments
+      );
+    } else if (data.geometryParams.radiusTop !== undefined) {
+      // Cylinder geometry
+      geometry = new THREE.CylinderGeometry(
+        data.geometryParams.radiusTop,
+        data.geometryParams.radiusBottom,
+        data.geometryParams.height,
+        data.geometryParams.radialSegments
+      );
+    } else if (data.geometryParams.radius !== undefined && data.geometryParams.radialSegments !== undefined) {
+      // Cone geometry
+      geometry = new THREE.ConeGeometry(
+        data.geometryParams.radius,
+        data.geometryParams.height,
+        data.geometryParams.radialSegments
+      );
     } else {
-      console.warn('Unknown object type, creating default box:', data.type);
-      const geometry = new THREE.BoxGeometry(1, 1, 1);
-      const material = new THREE.MeshStandardMaterial({ color: data.color || '#44aa88' });
-      object = new THREE.Mesh(geometry, material);
+      // Default to box
+      geometry = new THREE.BoxGeometry(1, 1, 1);
     }
 
-    if (object) {
-      // Set transform properties
-      object.position.set(
-        data.position?.x || 0, 
-        data.position?.y || 0, 
-        data.position?.z || 0
-      );
-      object.rotation.set(
-        data.rotation?.x || 0, 
-        data.rotation?.y || 0, 
-        data.rotation?.z || 0
-      );
-      object.scale.set(
-        data.scale?.x || 1, 
-        data.scale?.y || 1, 
-        data.scale?.z || 1
-      );
-      object.visible = data.visible !== false;
-      object.name = data.name;
-      
-      console.log('Successfully recreated object:', data.name, object.type);
-    }
-  } catch (error) {
-    console.error('Error converting Firestore object to THREE.js:', error, data);
-    // Create fallback object
-    const geometry = new THREE.BoxGeometry(1, 1, 1);
-    const material = new THREE.MeshStandardMaterial({ color: '#ff0000' }); // Red to indicate error
+    // Create material
+    const material = new THREE.MeshStandardMaterial({
+      color: data.color,
+      transparent: data.opacity < 1,
+      opacity: data.opacity,
+      ...data.materialParams
+    });
+
     object = new THREE.Mesh(geometry, material);
-    object.name = data.name + ' (Error)';
+  }
+
+  if (object) {
+    // Set transform properties
+    object.position.set(data.position.x, data.position.y, data.position.z);
+    object.rotation.set(data.rotation.x, data.rotation.y, data.rotation.z);
+    object.scale.set(data.scale.x, data.scale.y, data.scale.z);
+    object.visible = data.visible;
   }
 
   return object;
