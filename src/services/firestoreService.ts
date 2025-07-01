@@ -596,6 +596,29 @@ export const subscribeToLights = (userId: string, projectId: string, callback: (
   });
 };
 
+export const subscribeToScenes = (userId: string, projectId: string, callback: (scenes: FirestoreScene[]) => void) => {
+  const collectionName = getCollectionName(projectId, 'scenes');
+  // Use simpler query for real-time listener
+  const q = query(
+    collection(db, collectionName), 
+    where('userId', '==', userId)
+  );
+  return onSnapshot(q, (querySnapshot) => {
+    const scenes = querySnapshot.docs
+      .map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as FirestoreScene))
+      .filter(scene => scene.projectId === projectId)
+      .sort((a, b) => {
+        // Sort by createdAt in descending order (newest first)
+        if (!a.createdAt || !b.createdAt) return 0;
+        return b.createdAt.toMillis() - a.createdAt.toMillis();
+      });
+    callback(scenes);
+  });
+};
+
 // Batch operations for better performance
 export const saveObjectsBatch = async (objects: FirestoreObject[], userId: string, projectId: string): Promise<void> => {
   try {
