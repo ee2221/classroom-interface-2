@@ -37,11 +37,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ projectName }) => {
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const panelRef = useRef<HTMLDivElement>(null);
 
-  // Initialize position to top left area, avoiding other UI elements
+  // Initialize position to avoid the horizontal button bar
   useEffect(() => {
     if (panelRef.current && position.x === 0 && position.y === 0) {
-      // Position in top left area, with margin to avoid save buttons
-      setPosition({ x: 80, y: 280 }); // 80px from left, 280px from top to avoid save buttons
+      // Position below the horizontal button bar and scene info
+      setPosition({ x: 16, y: 180 }); // 16px from left, 180px from top to avoid button bar
     }
   }, [isOpen]);
 
@@ -145,10 +145,10 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ projectName }) => {
     updateSceneSettings({ hideAllMenus: !sceneSettings.hideAllMenus });
   };
 
-  // Settings button (always visible) - positioned to avoid save buttons
+  // Settings button (always visible) - positioned to avoid button bar
   if (!isOpen) {
     return (
-      <div className="fixed z-50" style={{ top: '280px', left: '16px' }}>
+      <div className="fixed z-50" style={{ top: '180px', left: '16px' }}>
         <button
           onClick={() => setIsOpen(true)}
           className="flex items-center gap-3 p-3 bg-[#1a1a1a] hover:bg-[#2a2a2a] rounded-xl shadow-2xl shadow-black/20 border border-white/5 transition-all duration-200 hover:scale-105"
@@ -441,7 +441,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ projectName }) => {
   );
 };
 
-// Hide Interface Button Component - Positioned at top left corner
+// Hide Interface Button Component - Now used in horizontal layout
 const HideInterfaceButton: React.FC = () => {
   const { sceneSettings, updateSceneSettings } = useSceneStore();
 
