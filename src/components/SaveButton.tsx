@@ -14,7 +14,7 @@ import {
 
 interface SaveButtonProps {
   user: any;
-  projectId?: string; // Made optional since we're using shared database
+  projectId: string; // Add projectId prop
 }
 
 const SaveButton: React.FC<SaveButtonProps> = ({ user, projectId }) => {
@@ -31,9 +31,9 @@ const SaveButton: React.FC<SaveButtonProps> = ({ user, projectId }) => {
   const [saveMessage, setSaveMessage] = useState('');
 
   const handleSave = async () => {
-    if (!user) {
+    if (!user || !projectId) {
       setSaveStatus('error');
-      setSaveMessage('Please sign in to save');
+      setSaveMessage('Please sign in and select a project to save');
       setTimeout(() => {
         setSaveStatus('idle');
         setSaveMessage('');
@@ -42,10 +42,10 @@ const SaveButton: React.FC<SaveButtonProps> = ({ user, projectId }) => {
     }
 
     setSaveStatus('saving');
-    setSaveMessage('Saving to shared database...');
+    setSaveMessage('Saving to cloud...');
 
     try {
-      // Save all objects to shared database
+      // Save all objects
       const objectPromises = objects.map(async (obj) => {
         const firestoreData = objectToFirestore(obj.object, obj.name, undefined, user.uid, projectId);
         firestoreData.visible = obj.visible;
@@ -57,7 +57,7 @@ const SaveButton: React.FC<SaveButtonProps> = ({ user, projectId }) => {
         return await saveObject(firestoreData, user.uid, projectId);
       });
 
-      // Save all groups to shared database
+      // Save all groups
       const groupPromises = groups.map(async (group) => {
         const firestoreGroup: FirestoreGroup = {
           name: group.name,
@@ -69,7 +69,7 @@ const SaveButton: React.FC<SaveButtonProps> = ({ user, projectId }) => {
         return await saveGroup(firestoreGroup, user.uid, projectId);
       });
 
-      // Save all lights to shared database
+      // Save all lights
       const lightPromises = lights.map(async (light) => {
         const firestoreLight: FirestoreLight = {
           name: light.name,
@@ -88,7 +88,7 @@ const SaveButton: React.FC<SaveButtonProps> = ({ user, projectId }) => {
         return await saveLight(firestoreLight, user.uid, projectId);
       });
 
-      // Save scene settings to shared database
+      // Save scene settings
       const sceneData: FirestoreScene = {
         name: `Scene ${new Date().toLocaleString()}`,
         description: 'Auto-saved scene',
@@ -110,7 +110,7 @@ const SaveButton: React.FC<SaveButtonProps> = ({ user, projectId }) => {
       ]);
 
       setSaveStatus('success');
-      setSaveMessage(`Saved ${objects.length} objects, ${groups.length} groups, ${lights.length} lights to shared database`);
+      setSaveMessage(`Saved ${objects.length} objects, ${groups.length} groups, ${lights.length} lights to project`);
       
       // Reset status after 3 seconds
       setTimeout(() => {
@@ -121,7 +121,7 @@ const SaveButton: React.FC<SaveButtonProps> = ({ user, projectId }) => {
     } catch (error) {
       console.error('Save error:', error);
       setSaveStatus('error');
-      setSaveMessage('Failed to save to shared database');
+      setSaveMessage('Failed to save to cloud');
       
       // Reset status after 5 seconds
       setTimeout(() => {
@@ -159,7 +159,7 @@ const SaveButton: React.FC<SaveButtonProps> = ({ user, projectId }) => {
           <>
             <Cloud className="w-5 h-5" />
             <Save className="w-4 h-4" />
-            <span className="text-sm font-medium">Save to Shared DB</span>
+            <span className="text-sm font-medium">Save to Cloud</span>
           </>
         );
     }
@@ -180,7 +180,7 @@ const SaveButton: React.FC<SaveButtonProps> = ({ user, projectId }) => {
     }
   };
 
-  const isDisabled = saveStatus === 'saving' || !user;
+  const isDisabled = saveStatus === 'saving' || !user || !projectId;
   const hasContent = objects.length > 0 || groups.length > 0 || lights.length > 0;
 
   return (
@@ -188,14 +188,18 @@ const SaveButton: React.FC<SaveButtonProps> = ({ user, projectId }) => {
       <div className="flex flex-col items-start gap-2">
         <button
           onClick={handleSave}
-          disabled={isDisabled}
+          disabled={isDisabled || !hasContent}
           className={getButtonStyles()}
           title={
             !user
               ? 'Sign in to save'
-              : saveStatus === 'saving' 
-                ? 'Saving to shared database...' 
-                : 'Save current scene to shared database (accessible from all projects)'
+              : !projectId
+                ? 'Select a project to save'
+                : !hasContent 
+                  ? 'No content to save' 
+                  : saveStatus === 'saving' 
+                    ? 'Saving to project database...' 
+                    : 'Save current scene to project database'
           }
         >
           {getButtonContent()}
@@ -214,25 +218,19 @@ const SaveButton: React.FC<SaveButtonProps> = ({ user, projectId }) => {
           </div>
         )}
         
-        {/* Shared Database Info */}
-        {hasContent && saveStatus === 'idle' && user && (
-          <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2 text-xs">
-            <div className="text-blue-400 font-medium mb-1">Shared Database</div>
-            <div className="text-white/60">
-              <div className="flex items-center gap-4">
-                {objects.length > 0 && (
-                  <span>{objects.length} object{objects.length !== 1 ? 's' : ''}</span>
-                )}
-                {groups.length > 0 && (
-                  <span>{groups.length} group{groups.length !== 1 ? 's' : ''}</span>
-                )}
-                {lights.length > 0 && (
-                  <span>{lights.length} light{lights.length !== 1 ? 's' : ''}</span>
-                )}
-              </div>
-              <div className="text-xs text-white/50 mt-1">
-                Available across all projects
-              </div>
+        {/* Scene Info */}
+        {hasContent && saveStatus === 'idle' && user && projectId && (
+          <div className="bg-[#1a1a1a]/90 border border-white/10 rounded-lg px-3 py-2 text-xs text-white/60">
+            <div className="flex items-center gap-4">
+              {objects.length > 0 && (
+                <span>{objects.length} object{objects.length !== 1 ? 's' : ''}</span>
+              )}
+              {groups.length > 0 && (
+                <span>{groups.length} group{groups.length !== 1 ? 's' : ''}</span>
+              )}
+              {lights.length > 0 && (
+                <span>{lights.length} light{lights.length !== 1 ? 's' : ''}</span>
+              )}
             </div>
           </div>
         )}
