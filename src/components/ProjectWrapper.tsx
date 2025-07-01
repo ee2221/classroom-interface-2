@@ -139,24 +139,6 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
             <span className="text-white/90 font-medium hidden sm:block">Classroom</span>
           </button>
 
-          {/* Project Info */}
-          <div className="bg-[#1a1a1a]/90 backdrop-blur-sm rounded-xl shadow-2xl shadow-black/20 p-3 border border-white/5">
-            <div className="flex items-center gap-3">
-              <div>
-                <h1 className="text-lg font-semibold text-white/90">{projectName}</h1>
-                <div className="flex items-center gap-2 text-sm text-white/60">
-                  <span>{objects.length} objects</span>
-                  <span>•</span>
-                  <span>{groups.length} groups</span>
-                  <span>•</span>
-                  <span>{lights.length} lights</span>
-                  <span>•</span>
-                  <span className="text-blue-400">Project DB: {projectId.slice(-6)}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
           {/* Hide Interface Button */}
           <HideInterfaceButton />
         </div>
@@ -209,8 +191,8 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
         </>
       )}
       
-      {/* Settings panel is always visible */}
-      <SettingsPanel />
+      {/* Settings panel is always visible and will show project name */}
+      <SettingsPanel projectName={projectName} />
     </div>
   );
 };

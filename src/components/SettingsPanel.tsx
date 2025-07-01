@@ -17,7 +17,11 @@ import {
 } from 'lucide-react';
 import { useSceneStore } from '../store/sceneStore';
 
-const SettingsPanel: React.FC = () => {
+interface SettingsPanelProps {
+  projectName?: string;
+}
+
+const SettingsPanel: React.FC<SettingsPanelProps> = ({ projectName }) => {
   const { 
     sceneSettings, 
     updateSceneSettings 
@@ -144,13 +148,20 @@ const SettingsPanel: React.FC = () => {
   // Settings button (always visible) - positioned under Hide Interface button
   if (!isOpen) {
     return (
-      <button
-        onClick={() => setIsOpen(true)}
-        className="fixed top-20 left-4 p-3 bg-[#1a1a1a] hover:bg-[#2a2a2a] rounded-xl shadow-2xl shadow-black/20 border border-white/5 transition-all duration-200 hover:scale-105 z-50"
-        title="Open Settings"
-      >
-        <Settings className="w-5 h-5 text-white/90" />
-      </button>
+      <div className="fixed top-20 left-4 z-50">
+        <button
+          onClick={() => setIsOpen(true)}
+          className="flex items-center gap-3 p-3 bg-[#1a1a1a] hover:bg-[#2a2a2a] rounded-xl shadow-2xl shadow-black/20 border border-white/5 transition-all duration-200 hover:scale-105"
+          title="Open Settings"
+        >
+          <Settings className="w-5 h-5 text-white/90" />
+          {projectName && (
+            <span className="text-white/90 font-medium text-sm">
+              {projectName}
+            </span>
+          )}
+        </button>
+      </div>
     );
   }
 
@@ -176,7 +187,12 @@ const SettingsPanel: React.FC = () => {
           title="Expand Settings"
         >
           <Settings className="w-5 h-5" />
-          <span className="text-sm font-medium">Settings</span>
+          <div className="flex flex-col items-start">
+            <span className="text-sm font-medium">Settings</span>
+            {projectName && (
+              <span className="text-xs text-white/60">{projectName}</span>
+            )}
+          </div>
           <ChevronDown className="w-4 h-4" />
         </button>
       </div>
@@ -201,10 +217,15 @@ const SettingsPanel: React.FC = () => {
         onMouseDown={handleMouseDown}
         title="Drag to move panel"
       >
-        <h2 className="text-lg font-semibold text-white/90 flex items-center gap-2 pointer-events-none">
-          <Settings className="w-5 h-5" />
-          Settings
-        </h2>
+        <div className="flex items-center gap-2 pointer-events-none">
+          <Settings className="w-5 h-5 text-white/90" />
+          <div className="flex flex-col">
+            <h2 className="text-lg font-semibold text-white/90">Settings</h2>
+            {projectName && (
+              <span className="text-sm text-white/60">{projectName}</span>
+            )}
+          </div>
+        </div>
         <div className="flex items-center gap-2">
           <GripHorizontal className="w-4 h-4 text-white/50 pointer-events-none" />
           <button
