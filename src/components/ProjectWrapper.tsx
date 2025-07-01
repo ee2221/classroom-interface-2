@@ -13,10 +13,10 @@ import LightingPanel from './LightingPanel';
 import SettingsPanel, { HideInterfaceButton } from './SettingsPanel';
 import { useSceneStore } from '../store/sceneStore';
 import { 
-  getObjects, 
-  getGroups, 
-  getLights, 
-  getScenes,
+  subscribeToObjects, 
+  subscribeToGroups, 
+  subscribeToLights, 
+  subscribeToScenes,
   firestoreToObject,
   FirestoreObject,
   FirestoreGroup,
@@ -54,15 +54,21 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [loadingProject, setLoadingProject] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [dataLoaded, setDataLoaded] = useState(false);
 
-  // Load project data when component mounts or project changes
+  // Real-time data loading with Firestore listeners
   useEffect(() => {
-    const loadProjectData = async () => {
-      if (!user || !projectId) {
-        setLoadingProject(false);
-        return;
-      }
+    if (!user || !projectId) {
+      setLoadingProject(false);
+      return;
+    }
 
+    let objectsUnsubscribe: (() => void) | null = null;
+    let groupsUnsubscribe: (() => void) | null = null;
+    let lightsUnsubscribe: (() => void) | null = null;
+    let scenesUnsubscribe: (() => void) | null = null;
+
+    const setupRealtimeListeners = async () => {
       try {
         setLoadingProject(true);
         setLoadError(null);
@@ -70,124 +76,104 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
         // Reset scene first
         resetScene();
 
-        // Load all project data in parallel
-        const [
-          firestoreObjects,
-          firestoreGroups,
-          firestoreLights,
-          firestoreScenes
-        ] = await Promise.all([
-          getObjects(user.uid, projectId),
-          getGroups(user.uid, projectId),
-          getLights(user.uid, projectId),
-          getScenes(user.uid, projectId)
-        ]);
-
-        // Load scene settings if available (use the most recent scene)
-        if (firestoreScenes.length > 0) {
-          const latestScene = firestoreScenes[0]; // Already sorted by createdAt desc
-          updateSceneSettings({
-            backgroundColor: latestScene.backgroundColor,
-            showGrid: latestScene.showGrid,
-            gridSize: latestScene.gridSize,
-            gridDivisions: latestScene.gridDivisions
-          });
-          setCameraPerspective(latestScene.cameraPerspective as any);
-          // Note: cameraZoom would need to be added to the store if needed
-        }
-
-        // Load groups first (so objects can be assigned to them)
-        const groupMap = new Map<string, string>(); // firestoreId -> storeId
-        for (const firestoreGroup of firestoreGroups) {
-          if (firestoreGroup.id) {
-            const storeGroupId = crypto.randomUUID();
-            groupMap.set(firestoreGroup.id, storeGroupId);
-            
-            createGroup(firestoreGroup.name, []);
-            
-            // Update the group with the correct properties
-            const store = useSceneStore.getState();
-            const createdGroup = store.groups.find(g => g.name === firestoreGroup.name);
-            if (createdGroup) {
-              // Update group properties
-              store.groups = store.groups.map(g => 
-                g.id === createdGroup.id 
-                  ? {
-                      ...g,
-                      id: storeGroupId,
-                      expanded: firestoreGroup.expanded,
-                      visible: firestoreGroup.visible,
-                      locked: firestoreGroup.locked
-                    }
-                  : g
-              );
-            }
-          }
-        }
-
-        // Load objects
-        const objectMap = new Map<string, string>(); // firestoreId -> storeId
-        for (const firestoreObject of firestoreObjects) {
-          if (firestoreObject.id) {
-            const threeObject = firestoreToObject(firestoreObject);
-            if (threeObject) {
-              const storeObjectId = crypto.randomUUID();
-              objectMap.set(firestoreObject.id, storeObjectId);
-              
-              addObject(threeObject, firestoreObject.name);
-              
-              // Update object properties
-              const store = useSceneStore.getState();
-              const addedObject = store.objects[store.objects.length - 1];
-              if (addedObject) {
-                store.objects = store.objects.map(obj => 
-                  obj.id === addedObject.id 
-                    ? {
-                        ...obj,
-                        id: storeObjectId,
-                        visible: firestoreObject.visible,
-                        locked: firestoreObject.locked,
-                        groupId: firestoreObject.groupId ? groupMap.get(firestoreObject.groupId) : undefined
-                      }
-                    : obj
-                );
+        // Set up real-time listeners for all data types
+        objectsUnsubscribe = subscribeToObjects(user.uid, projectId, (firestoreObjects) => {
+          console.log('Received objects update:', firestoreObjects.length);
+          
+          // Clear existing objects and reload from Firestore
+          const store = useSceneStore.getState();
+          
+          // Convert Firestore objects to THREE.js objects
+          const newObjects = firestoreObjects.map(firestoreObject => {
+            if (firestoreObject.id) {
+              const threeObject = firestoreToObject(firestoreObject);
+              if (threeObject) {
+                return {
+                  id: firestoreObject.id,
+                  object: threeObject,
+                  name: firestoreObject.name,
+                  visible: firestoreObject.visible,
+                  locked: firestoreObject.locked,
+                  groupId: firestoreObject.groupId
+                };
               }
             }
-          }
-        }
+            return null;
+          }).filter(Boolean) as Array<{
+            id: string;
+            object: THREE.Object3D;
+            name: string;
+            visible: boolean;
+            locked: boolean;
+            groupId?: string;
+          }>;
 
-        // Update group object IDs to match the new store IDs
-        const store = useSceneStore.getState();
-        store.groups = store.groups.map(group => {
-          const originalGroup = firestoreGroups.find(fg => 
-            groupMap.get(fg.id || '') === group.id
-          );
-          if (originalGroup) {
-            const newObjectIds = originalGroup.objectIds
-              .map(firestoreObjId => objectMap.get(firestoreObjId))
-              .filter(Boolean) as string[];
-            
-            return {
-              ...group,
-              objectIds: newObjectIds
-            };
+          // Update the store directly
+          store.objects = newObjects;
+          
+          if (!dataLoaded) {
+            setDataLoaded(true);
+            setLoadingProject(false);
           }
-          return group;
         });
 
-        // Load lights
-        for (const firestoreLight of firestoreLights) {
-          addLight(
-            firestoreLight.type,
-            firestoreLight.position
-          );
+        groupsUnsubscribe = subscribeToGroups(user.uid, projectId, (firestoreGroups) => {
+          console.log('Received groups update:', firestoreGroups.length);
           
-          // Update light properties
           const store = useSceneStore.getState();
-          const addedLight = store.lights[store.lights.length - 1];
-          if (addedLight) {
-            store.updateLight(addedLight.id, {
+          
+          // Convert Firestore groups to store groups
+          const newGroups = firestoreGroups.map(firestoreGroup => ({
+            id: firestoreGroup.id || crypto.randomUUID(),
+            name: firestoreGroup.name,
+            expanded: firestoreGroup.expanded,
+            visible: firestoreGroup.visible,
+            locked: firestoreGroup.locked,
+            objectIds: firestoreGroup.objectIds
+          }));
+
+          // Update the store directly
+          store.groups = newGroups;
+        });
+
+        lightsUnsubscribe = subscribeToLights(user.uid, projectId, (firestoreLights) => {
+          console.log('Received lights update:', firestoreLights.length);
+          
+          const store = useSceneStore.getState();
+          
+          // Convert Firestore lights to store lights
+          const newLights = firestoreLights.map(firestoreLight => {
+            // Create the THREE.js light object
+            let lightObject: THREE.Light;
+            
+            switch (firestoreLight.type) {
+              case 'directional':
+                lightObject = new THREE.DirectionalLight(firestoreLight.color, firestoreLight.intensity);
+                lightObject.position.set(...firestoreLight.position);
+                (lightObject as THREE.DirectionalLight).target.position.set(...firestoreLight.target);
+                break;
+              case 'point':
+                lightObject = new THREE.PointLight(firestoreLight.color, firestoreLight.intensity, firestoreLight.distance, firestoreLight.decay);
+                lightObject.position.set(...firestoreLight.position);
+                break;
+              case 'spot':
+                lightObject = new THREE.SpotLight(firestoreLight.color, firestoreLight.intensity, firestoreLight.distance, firestoreLight.angle, firestoreLight.penumbra, firestoreLight.decay);
+                lightObject.position.set(...firestoreLight.position);
+                (lightObject as THREE.SpotLight).target.position.set(...firestoreLight.target);
+                break;
+              default:
+                lightObject = new THREE.PointLight(firestoreLight.color, firestoreLight.intensity);
+                lightObject.position.set(...firestoreLight.position);
+            }
+            
+            lightObject.castShadow = firestoreLight.castShadow;
+            lightObject.visible = firestoreLight.visible;
+
+            return {
+              id: firestoreLight.id || crypto.randomUUID(),
               name: firestoreLight.name,
+              type: firestoreLight.type,
+              position: firestoreLight.position,
               target: firestoreLight.target,
               intensity: firestoreLight.intensity,
               color: firestoreLight.color,
@@ -196,28 +182,46 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
               distance: firestoreLight.distance,
               decay: firestoreLight.decay,
               angle: firestoreLight.angle,
-              penumbra: firestoreLight.penumbra
-            });
-          }
-        }
+              penumbra: firestoreLight.penumbra,
+              object: lightObject
+            };
+          });
 
-        console.log(`Loaded project data:`, {
-          objects: firestoreObjects.length,
-          groups: firestoreGroups.length,
-          lights: firestoreLights.length,
-          scenes: firestoreScenes.length
+          // Update the store directly
+          store.lights = newLights;
+        });
+
+        // Optional: Load scene settings
+        scenesUnsubscribe = subscribeToScenes(user.uid, projectId, (firestoreScenes) => {
+          if (firestoreScenes.length > 0) {
+            const latestScene = firestoreScenes[0]; // Already sorted by createdAt desc
+            updateSceneSettings({
+              backgroundColor: latestScene.backgroundColor,
+              showGrid: latestScene.showGrid,
+              gridSize: latestScene.gridSize,
+              gridDivisions: latestScene.gridDivisions
+            });
+            setCameraPerspective(latestScene.cameraPerspective as any);
+          }
         });
 
       } catch (error) {
-        console.error('Error loading project data:', error);
+        console.error('Error setting up real-time listeners:', error);
         setLoadError(error instanceof Error ? error.message : 'Failed to load project data');
-      } finally {
         setLoadingProject(false);
       }
     };
 
-    loadProjectData();
-  }, [projectId, user?.uid, resetScene, updateSceneSettings, setCameraPerspective, addObject, createGroup, addLight]);
+    setupRealtimeListeners();
+
+    // Cleanup function
+    return () => {
+      if (objectsUnsubscribe) objectsUnsubscribe();
+      if (groupsUnsubscribe) groupsUnsubscribe();
+      if (lightsUnsubscribe) lightsUnsubscribe();
+      if (scenesUnsubscribe) scenesUnsubscribe();
+    };
+  }, [projectId, user?.uid, resetScene, updateSceneSettings, setCameraPerspective]);
 
   // Auto-save functionality
   useEffect(() => {
