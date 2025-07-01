@@ -12,6 +12,18 @@ import CameraPerspectivePanel from './CameraPerspectivePanel';
 import LightingPanel from './LightingPanel';
 import SettingsPanel, { HideInterfaceButton } from './SettingsPanel';
 import { useSceneStore } from '../store/sceneStore';
+import { 
+  getObjects, 
+  getGroups, 
+  getLights, 
+  getScenes,
+  firestoreToObject,
+  FirestoreObject,
+  FirestoreGroup,
+  FirestoreLight,
+  FirestoreScene
+} from '../services/firestoreService';
+import * as THREE from 'three';
 
 interface ProjectWrapperProps {
   projectId: string;
@@ -26,9 +38,186 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
   user, 
   onBackToClassroom 
 }) => {
-  const { sceneSettings, objects, groups, lights } = useSceneStore();
+  const { 
+    sceneSettings, 
+    objects, 
+    groups, 
+    lights, 
+    resetScene,
+    updateSceneSettings,
+    setCameraPerspective,
+    addObject,
+    createGroup,
+    addLight
+  } = useSceneStore();
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [loadingProject, setLoadingProject] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Load project data when component mounts or project changes
+  useEffect(() => {
+    const loadProjectData = async () => {
+      if (!user || !projectId) {
+        setLoadingProject(false);
+        return;
+      }
+
+      try {
+        setLoadingProject(true);
+        setLoadError(null);
+
+        // Reset scene first
+        resetScene();
+
+        // Load all project data in parallel
+        const [
+          firestoreObjects,
+          firestoreGroups,
+          firestoreLights,
+          firestoreScenes
+        ] = await Promise.all([
+          getObjects(user.uid, projectId),
+          getGroups(user.uid, projectId),
+          getLights(user.uid, projectId),
+          getScenes(user.uid, projectId)
+        ]);
+
+        // Load scene settings if available (use the most recent scene)
+        if (firestoreScenes.length > 0) {
+          const latestScene = firestoreScenes[0]; // Already sorted by createdAt desc
+          updateSceneSettings({
+            backgroundColor: latestScene.backgroundColor,
+            showGrid: latestScene.showGrid,
+            gridSize: latestScene.gridSize,
+            gridDivisions: latestScene.gridDivisions
+          });
+          setCameraPerspective(latestScene.cameraPerspective as any);
+          // Note: cameraZoom would need to be added to the store if needed
+        }
+
+        // Load groups first (so objects can be assigned to them)
+        const groupMap = new Map<string, string>(); // firestoreId -> storeId
+        for (const firestoreGroup of firestoreGroups) {
+          if (firestoreGroup.id) {
+            const storeGroupId = crypto.randomUUID();
+            groupMap.set(firestoreGroup.id, storeGroupId);
+            
+            createGroup(firestoreGroup.name, []);
+            
+            // Update the group with the correct properties
+            const store = useSceneStore.getState();
+            const createdGroup = store.groups.find(g => g.name === firestoreGroup.name);
+            if (createdGroup) {
+              // Update group properties
+              store.groups = store.groups.map(g => 
+                g.id === createdGroup.id 
+                  ? {
+                      ...g,
+                      id: storeGroupId,
+                      expanded: firestoreGroup.expanded,
+                      visible: firestoreGroup.visible,
+                      locked: firestoreGroup.locked
+                    }
+                  : g
+              );
+            }
+          }
+        }
+
+        // Load objects
+        const objectMap = new Map<string, string>(); // firestoreId -> storeId
+        for (const firestoreObject of firestoreObjects) {
+          if (firestoreObject.id) {
+            const threeObject = firestoreToObject(firestoreObject);
+            if (threeObject) {
+              const storeObjectId = crypto.randomUUID();
+              objectMap.set(firestoreObject.id, storeObjectId);
+              
+              addObject(threeObject, firestoreObject.name);
+              
+              // Update object properties
+              const store = useSceneStore.getState();
+              const addedObject = store.objects[store.objects.length - 1];
+              if (addedObject) {
+                store.objects = store.objects.map(obj => 
+                  obj.id === addedObject.id 
+                    ? {
+                        ...obj,
+                        id: storeObjectId,
+                        visible: firestoreObject.visible,
+                        locked: firestoreObject.locked,
+                        groupId: firestoreObject.groupId ? groupMap.get(firestoreObject.groupId) : undefined
+                      }
+                    : obj
+                );
+              }
+            }
+          }
+        }
+
+        // Update group object IDs to match the new store IDs
+        const store = useSceneStore.getState();
+        store.groups = store.groups.map(group => {
+          const originalGroup = firestoreGroups.find(fg => 
+            groupMap.get(fg.id || '') === group.id
+          );
+          if (originalGroup) {
+            const newObjectIds = originalGroup.objectIds
+              .map(firestoreObjId => objectMap.get(firestoreObjId))
+              .filter(Boolean) as string[];
+            
+            return {
+              ...group,
+              objectIds: newObjectIds
+            };
+          }
+          return group;
+        });
+
+        // Load lights
+        for (const firestoreLight of firestoreLights) {
+          addLight(
+            firestoreLight.type,
+            firestoreLight.position
+          );
+          
+          // Update light properties
+          const store = useSceneStore.getState();
+          const addedLight = store.lights[store.lights.length - 1];
+          if (addedLight) {
+            store.updateLight(addedLight.id, {
+              name: firestoreLight.name,
+              target: firestoreLight.target,
+              intensity: firestoreLight.intensity,
+              color: firestoreLight.color,
+              visible: firestoreLight.visible,
+              castShadow: firestoreLight.castShadow,
+              distance: firestoreLight.distance,
+              decay: firestoreLight.decay,
+              angle: firestoreLight.angle,
+              penumbra: firestoreLight.penumbra
+            });
+          }
+        }
+
+        console.log(`Loaded project data:`, {
+          objects: firestoreObjects.length,
+          groups: firestoreGroups.length,
+          lights: firestoreLights.length,
+          scenes: firestoreScenes.length
+        });
+
+      } catch (error) {
+        console.error('Error loading project data:', error);
+        setLoadError(error instanceof Error ? error.message : 'Failed to load project data');
+      } finally {
+        setLoadingProject(false);
+      }
+    };
+
+    loadProjectData();
+  }, [projectId, user?.uid, resetScene, updateSceneSettings, setCameraPerspective, addObject, createGroup, addLight]);
 
   // Auto-save functionality
   useEffect(() => {
@@ -139,6 +328,46 @@ const ProjectWrapper: React.FC<ProjectWrapperProps> = ({
   };
 
   const hasContent = objects.length > 0 || groups.length > 0 || lights.length > 0;
+
+  // Show loading screen while loading project data
+  if (loadingProject) {
+    return (
+      <div className="w-full h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-white/70 text-lg">Loading project...</p>
+          <p className="text-white/50 text-sm mt-2">{projectName}</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error screen if loading failed
+  if (loadError) {
+    return (
+      <div className="w-full h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <AlertCircle className="w-16 h-16 text-red-400 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-white mb-2">Error Loading Project</h2>
+          <p className="text-red-400 mb-4">{loadError}</p>
+          <div className="flex gap-4 justify-center">
+            <button
+              onClick={() => window.location.reload()}
+              className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-xl font-medium transition-colors"
+            >
+              Retry
+            </button>
+            <button
+              onClick={onBackToClassroom}
+              className="bg-gray-600 hover:bg-gray-700 text-white px-6 py-3 rounded-xl font-medium transition-colors"
+            >
+              Back to Classroom
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full h-screen relative">
